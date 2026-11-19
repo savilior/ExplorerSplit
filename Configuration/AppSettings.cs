@@ -1,0 +1,107 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using ExplorerSplit.Interop;
+
+namespace ExplorerSplit.Configuration;
+
+internal enum RightPanePathMode
+{
+    SameAsLeft,
+    Home,
+    Custom
+}
+
+internal sealed class AppSettings
+{
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        WriteIndented = true,
+        Converters = { new JsonStringEnumConverter() }
+    };
+
+    private static string SettingsDirectory =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ExplorerSplit");
+
+    private static string SettingsFilePath => Path.Combine(SettingsDirectory, "settings.json");
+
+    public bool ShowTitleBarButton { get; set; } = true;
+
+    public bool ReplaceDefaultExplorer { get; set; } = false;
+
+    public uint HotkeyModifiers { get; set; } = NativeMethods.MOD_CONTROL | NativeMethods.MOD_SHIFT;
+
+    public Keys HotkeyKey { get; set; } = Keys.S;
+
+    public RightPanePathMode DefaultRightPaneMode { get; set; } = RightPanePathMode.SameAsLeft;
+
+    public string CustomRightPanePath { get; set; } = string.Empty;
+
+    public static AppSettings Load()
+    {
+        try
+        {
+            if (File.Exists(SettingsFilePath))
+            {
+                string json = File.ReadAllText(SettingsFilePath);
+                AppSettings? loaded = JsonSerializer.Deserialize<AppSettings>(json, SerializerOptions);
+                if (loaded is not null)
+                {
+                    if (loaded.HotkeyKey == Keys.None)
+                    {
+                        loaded.HotkeyKey = Keys.S;
+                    }
+
+                    if (loaded.HotkeyModifiers == 0)
+                    {
+                        loaded.HotkeyModifiers = NativeMethods.MOD_CONTROL | NativeMethods.MOD_SHIFT;
+                    }
+
+                    return loaded;
+                }
+            }
+        }
+        catch
+        {
+            // Fall back to defaults on corrupt or unreadable config
+        }
+
+        return new AppSettings();
+    }
+
+    public void Save()
+    {
+        try
+        {
+            Directory.CreateDirectory(SettingsDirectory);
+            string json = JsonSerializer.Serialize(this, SerializerOptions);
+            File.WriteAllText(SettingsFilePath, json);
+        }
+        catch
+        {
+            // Ignore write failures
+        }
+    }
+
+    public string FormatHotkey() => FormatHotkey(HotkeyModifiers, HotkeyKey);
+
+    public static string FormatHotkey(uint modifiers, Keys key)
+    {
+        List<string> parts = new();
+        if ((modifiers & NativeMethods.MOD_CONTROL) != 0) parts.Add("Ctrl");
+        if ((modifiers & NativeMethods.MOD_ALT) != 0) parts.Add("Alt");
+        if ((modifiers & NativeMethods.MOD_SHIFT) != 0) parts.Add("Shift");
+        if ((modifiers & NativeMethods.MOD_WIN) != 0) parts.Add("Win");
+        parts.Add(FormatKeyName(key));
+        return string.Join("+", parts);
+    }
+
+    private static string FormatKeyName(Keys key)
+    {
+        if (key >= Keys.D0 && key <= Keys.D9)
+        {
+            return ((char)('0' + (key - Keys.D0))).ToString();
+        }
+
+        return key.ToString();
+    }
+}
