@@ -6,7 +6,6 @@ internal static class ShellBrowserInterop
 {
     internal static readonly Guid ClsidExplorerBrowser = new("71F96385-DDD6-48D3-A0C1-AE06E8B055FB");
     internal static readonly Guid ClsidNamespaceTreeControl = new("AE054212-3535-4430-83ED-D501AA6680E6");
-    internal static readonly Guid ClsidModernShare = new("E2BF9676-5F8F-435C-97EB-11607A5BEDF7");
     internal static readonly Guid IidIShellItem = new("43826D1E-E718-42EE-BC55-A1E261C37BFE");
     internal static readonly Guid IidIShellItemArray = new("B63EA76D-1F85-456F-A19C-48159EFA858B");
     internal static readonly Guid IidIShellView = new("000214E3-0000-0000-C000-000000000046");

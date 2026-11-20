@@ -18,6 +18,8 @@ internal sealed class PreviewPaneControl : Panel
     private readonly PictureBox _imageBox;
     private readonly TextBox _textBox;
     private readonly Label _emptyLabel;
+    private readonly Panel _handlerPanel;
+    private readonly ShellPreviewHost _shellPreview = new();
     private readonly Font _titleFont;
     private readonly Font _metaFont;
     private readonly Font _monoFont;
@@ -112,7 +114,17 @@ internal sealed class PreviewPaneControl : Panel
             Padding = new Padding(16)
         };
 
+        // Host surface for native Windows preview handlers (PDF, Office, mail, ...)
+        _handlerPanel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = bg,
+            Visible = false
+        };
+        _handlerPanel.Resize += (_, _) => _shellPreview.Resize();
+
         Controls.Add(_emptyLabel);
+        Controls.Add(_handlerPanel);
         Controls.Add(_textBox);
         Controls.Add(_imageBox);
         Controls.Add(headerPanel);
@@ -128,6 +140,7 @@ internal sealed class PreviewPaneControl : Panel
 
         _lastPath = path;
         ClearImage();
+        UnloadShellPreview();
 
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -151,6 +164,11 @@ internal sealed class PreviewPaneControl : Panel
         FileInfo file = new(path);
         string meta = $"{FormatSize(file.Length)} • {file.LastWriteTime:g}";
         string ext = file.Extension;
+
+        if (ShellPreviewHost.HasHandler(path) && TryShowShellPreview(path, file.Name, meta))
+        {
+            return;
+        }
 
         if (ImageExtensions.Contains(ext))
         {
@@ -200,7 +218,62 @@ internal sealed class PreviewPaneControl : Panel
             }
         }
 
+        if (ShellPreviewHost.HasHandler(path) && IsMarkedFromInternet(path))
+        {
+            // Office previewers refuse files carrying Mark-of-the-Web, as in File Explorer.
+            ShowEmpty(file.Name, meta, "This file came from the internet and can't be previewed. Unblock it in Properties to preview.");
+            return;
+        }
+
         ShowEmpty(file.Name, meta, "No preview available for this file type.");
+    }
+
+    /// <summary>
+    /// Releases any native preview handler and forgets the last path, so the next
+    /// UpdatePreview reloads even for the same selection (e.g. after the pane is re-shown).
+    /// </summary>
+    public void ClearPreview()
+    {
+        _lastPath = null;
+        ClearImage();
+        UnloadShellPreview();
+    }
+
+    private bool TryShowShellPreview(string path, string title, string meta)
+    {
+        _titleLabel.Text = title;
+        _metaLabel.Text = meta;
+        _handlerPanel.Visible = true;
+        _handlerPanel.BringToFront();
+        _imageBox.Visible = false;
+        _textBox.Visible = false;
+        _emptyLabel.Visible = false;
+
+        if (_shellPreview.TryLoad(path, _handlerPanel))
+        {
+            return true;
+        }
+
+        _handlerPanel.Visible = false;
+        return false;
+    }
+
+    private static bool IsMarkedFromInternet(string path)
+    {
+        try
+        {
+            return File.Exists(path + ":Zone.Identifier");
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void UnloadShellPreview()
+    {
+        _shellPreview.Unload();
+        _handlerPanel.Visible = false;
     }
 
     private void ShowEmpty(string title, string meta, string message)
@@ -238,6 +311,7 @@ internal sealed class PreviewPaneControl : Panel
         if (disposing)
         {
             ClearImage();
+            _shellPreview.Dispose();
             _titleFont.Dispose();
             _metaFont.Dispose();
             _monoFont.Dispose();

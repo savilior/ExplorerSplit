@@ -151,6 +151,65 @@ internal sealed class TabbedExplorerPane : Panel
         }
     }
 
+    /// <summary>
+    /// Moves every tab (including the last one) into <paramref name="targetPane"/>, appended after
+    /// its existing tabs, and makes this pane's active tab the active tab there. Leaves this pane empty.
+    /// </summary>
+    public void MoveAllTabsTo(TabbedExplorerPane targetPane)
+    {
+        if (targetPane == this || _tabs.Count == 0)
+        {
+            return;
+        }
+
+        ExplorerTabInstance? previouslyActive = ActiveTab;
+        List<ExplorerTabInstance> moving = _tabs.ToList();
+
+        _tabs.Clear();
+        ActiveTab = null;
+
+        foreach (ExplorerTabInstance tab in moving)
+        {
+            _contentContainer.Controls.Remove(tab.HostPanel);
+            tab.NavigationCompleted -= OnTabNavigationCompleted;
+            targetPane.AdoptTab(tab);
+        }
+
+        if (previouslyActive is not null)
+        {
+            targetPane.SelectTab(previouslyActive, notifyPaneSelected: false);
+        }
+
+        TabsChanged?.Invoke(this);
+    }
+
+    /// <summary>
+    /// Closes and disposes every tab, leaving the pane empty (used when a split pane is closed).
+    /// </summary>
+    public void CloseAllTabs()
+    {
+        List<ExplorerTabInstance> closing = _tabs.ToList();
+        _tabs.Clear();
+        ActiveTab = null;
+
+        foreach (ExplorerTabInstance tab in closing)
+        {
+            _contentContainer.Controls.Remove(tab.HostPanel);
+            tab.NavigationCompleted -= OnTabNavigationCompleted;
+            tab.Dispose();
+        }
+
+        TabsChanged?.Invoke(this);
+    }
+
+    private void AdoptTab(ExplorerTabInstance tab)
+    {
+        tab.NavigationCompleted += OnTabNavigationCompleted;
+        tab.HostPanel.Visible = false;
+        _tabs.Add(tab);
+        _contentContainer.Controls.Add(tab.HostPanel);
+    }
+
     public void CloseActiveTab()
     {
         if (ActiveTab is not null)

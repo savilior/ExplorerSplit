@@ -631,52 +631,78 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
     public string? GetFirstSelectedItemPath()
     {
-        if (_browser is not null && !_disposed)
+        List<string> paths = GetSelectedItemPaths(maxItems: 1);
+        return paths.Count > 0 ? paths[0] : null;
+    }
+
+    /// <summary>Returns the file-system paths of the selected items (non-file-system items are skipped).</summary>
+    public List<string> GetSelectedItemPaths(int maxItems = int.MaxValue)
+    {
+        List<string> result = new();
+        if (_browser is null || _disposed)
         {
-            Guid iid = ShellBrowserInterop.IidIFolderView;
-            if (_browser.GetCurrentView(ref iid, out object? fvObj) == 0 &&
-                fvObj is ShellBrowserInterop.IFolderView folderView)
-            {
-                try
-                {
-                    Guid iidArray = ShellBrowserInterop.IidIShellItemArray;
-                    if (folderView.Items(ShellBrowserInterop.SVGIO_SELECTION, ref iidArray, out object? arrayObj) == 0 &&
-                        arrayObj is ShellBrowserInterop.IShellItemArray itemArray)
-                    {
-                        try
-                        {
-                            if (itemArray.GetCount(out uint count) == 0 && count > 0 &&
-                                itemArray.GetItemAt(0, out ShellBrowserInterop.IShellItem? firstItem) == 0 &&
-                                firstItem is not null)
-                            {
-                                try
-                                {
-                                    if (firstItem.GetDisplayName(ShellBrowserInterop.SIGDN_FILESYSPATH, out string? selPath) == 0 &&
-                                        !string.IsNullOrWhiteSpace(selPath))
-                                    {
-                                        return selPath;
-                                    }
-                                }
-                                finally
-                                {
-                                    Marshal.ReleaseComObject(firstItem);
-                                }
-                            }
-                        }
-                        finally
-                        {
-                            Marshal.ReleaseComObject(itemArray);
-                        }
-                    }
-                }
-                finally
-                {
-                    Marshal.ReleaseComObject(folderView);
-                }
-            }
+            return result;
         }
 
-        return null;
+        Guid iid = ShellBrowserInterop.IidIFolderView;
+        if (_browser.GetCurrentView(ref iid, out object? fvObj) != 0 ||
+            fvObj is not ShellBrowserInterop.IFolderView folderView)
+        {
+            return result;
+        }
+
+        try
+        {
+            Guid iidArray = ShellBrowserInterop.IidIShellItemArray;
+            if (folderView.Items(ShellBrowserInterop.SVGIO_SELECTION, ref iidArray, out object? arrayObj) != 0 ||
+                arrayObj is not ShellBrowserInterop.IShellItemArray itemArray)
+            {
+                return result;
+            }
+
+            try
+            {
+                if (itemArray.GetCount(out uint count) != 0)
+                {
+                    return result;
+                }
+
+                for (uint i = 0; i < count && result.Count < maxItems; i++)
+                {
+                    if (itemArray.GetItemAt(i, out ShellBrowserInterop.IShellItem? item) != 0 || item is null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        if (item.GetDisplayName(ShellBrowserInterop.SIGDN_FILESYSPATH, out string? path) == 0 &&
+                            !string.IsNullOrWhiteSpace(path))
+                        {
+                            result.Add(path);
+                        }
+                    }
+                    catch
+                    {
+                        // Item has no file-system path
+                    }
+                    finally
+                    {
+                        Marshal.ReleaseComObject(item);
+                    }
+                }
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(itemArray);
+            }
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(folderView);
+        }
+
+        return result;
     }
 
     public bool RenameSelectedItem()
@@ -836,68 +862,6 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         }
     }
 
-    public bool InvokeModernShare()
-    {
-        if (_browser is null || _disposed)
-        {
-            return false;
-        }
-
-        Guid iid2 = ShellBrowserInterop.IidIFolderView2;
-        if (_browser.GetCurrentView(ref iid2, out object? fv2Obj) != 0 ||
-            fv2Obj is not ShellBrowserInterop.IFolderView2 folderView2)
-        {
-            return false;
-        }
-
-        IntPtr pSelection = IntPtr.Zero;
-        object? shareCmdObj = null;
-        try
-        {
-            if (folderView2.GetSelection(false, out pSelection) != 0 || pSelection == IntPtr.Zero)
-            {
-                return false;
-            }
-
-            Type? shareType = Type.GetTypeFromCLSID(ShellBrowserInterop.ClsidModernShare);
-            if (shareType is null)
-            {
-                return false;
-            }
-
-            shareCmdObj = Activator.CreateInstance(shareType);
-            if (shareCmdObj is not ShellBrowserInterop.IExplorerCommand explorerCommand)
-            {
-                return false;
-            }
-
-            if (shareCmdObj is ShellBrowserInterop.IObjectWithSite withSite)
-            {
-                withSite.SetSite(_browser);
-            }
-
-            return explorerCommand.Invoke(pSelection, IntPtr.Zero) == 0;
-        }
-        catch
-        {
-            return false;
-        }
-        finally
-        {
-            if (shareCmdObj is not null && Marshal.IsComObject(shareCmdObj))
-            {
-                Marshal.ReleaseComObject(shareCmdObj);
-            }
-
-            if (pSelection != IntPtr.Zero)
-            {
-                Marshal.Release(pSelection);
-            }
-
-            Marshal.ReleaseComObject(folderView2);
-        }
-    }
-
     public bool InvokeShellVerb(string verb, bool onBackground = false)
     {
         if (_browser is null || _disposed)
@@ -930,7 +894,9 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
                 ShellBrowserInterop.CMINVOKECOMMANDINFO invokeInfo = new()
                 {
                     cbSize = Marshal.SizeOf<ShellBrowserInterop.CMINVOKECOMMANDINFO>(),
-                    hwnd = HostPanel.Handle,
+                    // Use the top-level window: modern verbs such as Windows.ModernShare
+                    // anchor their UI to a top-level HWND and fail for child windows.
+                    hwnd = HostPanel.FindForm()?.Handle ?? HostPanel.Handle,
                     lpVerb = verb,
                     nShow = 1
                 };
@@ -985,67 +951,117 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         }
     }
 
-    public void SelectAllItems() => SendShellViewCommand(0x7021); // FCIDM_SHVIEW_SELECTALL
+    public void SelectAllItems() => ModifySelection(SelectionChange.All);
 
-    public void InvertSelection() => SendShellViewCommand(0x7022); // FCIDM_SHVIEW_INVERTSELECTION
+    public void InvertSelection() => ModifySelection(SelectionChange.Invert);
 
-    public void UndoLastAction() => SendShellViewCommand(0x701C); // FCIDM_SHVIEW_UNDO
+    public void SelectNoneItems() => ModifySelection(SelectionChange.None);
 
-    public void SelectNoneItems()
+    /// <summary>
+    /// Undo the last shell file operation. The shell view inside IExplorerBrowser does not act on
+    /// WM_COMMAND FCIDM_SHVIEW_UNDO, so focus the file list and send the native Ctrl+Z accelerator
+    /// once the invoking menu has closed.
+    /// </summary>
+    public void UndoLastAction()
     {
-        if (_browser is null || _disposed)
+        if (_browser is null || _disposed || !HostPanel.IsHandleCreated)
         {
             return;
         }
 
-        Guid iid = ShellBrowserInterop.IidIFolderView2;
-        if (_browser.GetCurrentView(ref iid, out object? fvObj) == 0 &&
-            fvObj is ShellBrowserInterop.IFolderView2 folderView2)
+        HostPanel.BeginInvoke(() =>
         {
-            try
+            if (_disposed)
             {
-                const uint SVSI_DESELECTOTHERS = 0x0004;
-                folderView2.SelectItem(-1, SVSI_DESELECTOTHERS);
+                return;
             }
-            catch
-            {
-                // Ignore
-            }
-            finally
-            {
-                Marshal.ReleaseComObject(folderView2);
-            }
-        }
+
+            FocusFileListView();
+            SendKeys.SendWait("^z");
+        });
     }
 
-    private void SendShellViewCommand(int commandId)
+    private enum SelectionChange
+    {
+        All,
+        None,
+        Invert
+    }
+
+    // The shell view hosted by IExplorerBrowser ignores WM_COMMAND select-all/invert, so
+    // selection is driven explicitly through IFolderView2.
+    private void ModifySelection(SelectionChange change)
     {
         if (_browser is null || _disposed)
         {
             return;
         }
 
-        Guid iidView = ShellBrowserInterop.IidIShellView;
-        if (_browser.GetCurrentView(ref iidView, out object? viewObj) != 0 ||
-            viewObj is not ShellBrowserInterop.IShellView shellView)
+        const uint SVSI_DESELECT = 0x0000;
+        const uint SVSI_SELECT = 0x0001;
+        const uint SVGIO_ALLVIEW = 0x0002;
+
+        Guid iid = ShellBrowserInterop.IidIFolderView2;
+        if (_browser.GetCurrentView(ref iid, out object? fvObj) != 0 ||
+            fvObj is not ShellBrowserInterop.IFolderView2 folderView2)
         {
             return;
         }
 
         try
         {
-            if (shellView.GetWindow(out IntPtr viewHwnd) == 0 && viewHwnd != IntPtr.Zero)
+            if (folderView2.ItemCount(SVGIO_ALLVIEW, out int count) != 0 || count <= 0)
             {
-                NativeMethods.SendMessage(viewHwnd, NativeMethods.WM_COMMAND, new IntPtr(commandId), IntPtr.Zero);
+                return;
             }
+
+            folderView2.SetRedraw(false);
+            try
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    uint flags = change switch
+                    {
+                        SelectionChange.All => SVSI_SELECT,
+                        SelectionChange.None => SVSI_DESELECT,
+                        _ => IsItemSelected(folderView2, i) ? SVSI_DESELECT : SVSI_SELECT
+                    };
+
+                    folderView2.SelectItem(i, flags);
+                }
+            }
+            finally
+            {
+                folderView2.SetRedraw(true);
+            }
+
+            _cachedSelectedCount = -1;
         }
         catch
         {
-            // Ignore
+            // Some virtual views do not support programmatic selection
         }
         finally
         {
-            Marshal.ReleaseComObject(shellView);
+            Marshal.ReleaseComObject(folderView2);
+        }
+    }
+
+    private static bool IsItemSelected(ShellBrowserInterop.IFolderView2 folderView2, int index)
+    {
+        const uint SVSI_SELECT = 0x0001;
+        if (folderView2.Item(index, out IntPtr pidl) != 0 || pidl == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        try
+        {
+            return folderView2.GetSelectionState(pidl, out uint state) == 0 && (state & SVSI_SELECT) != 0;
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(pidl);
         }
     }
 

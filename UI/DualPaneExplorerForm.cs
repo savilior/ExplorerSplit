@@ -503,14 +503,8 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         _leftFilesPane.TabsChanged += _ => _titleTabBar.Invalidate();
         _rightFilesPane.TabsChanged += _ => _titleTabBar.Invalidate();
 
-        _leftFilesPane.LastTabCloseRequested += _ => Close();
-        _rightFilesPane.LastTabCloseRequested += _ =>
-        {
-            if (_isSplitEnabled)
-            {
-                ToggleDualPaneSplit();
-            }
-        };
+        _leftFilesPane.LastTabCloseRequested += _ => OnLeftPaneLastTabClosing();
+        _rightFilesPane.LastTabCloseRequested += _ => OnRightPaneLastTabClosing();
 
         _previewPane = new PreviewPaneControl(_isDarkMode);
 
@@ -1308,10 +1302,59 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         SyncAllPaneViewRects();
     }
 
+    /// <summary>
+    /// Closing the last left tab: in split mode the right pane's tabs move into the (single) left
+    /// pane and become current, and the window drops to normal mode. Otherwise the window closes.
+    /// </summary>
+    private void OnLeftPaneLastTabClosing()
+    {
+        ExplorerTabInstance? closingTab = _leftFilesPane.ActiveTab;
+        if (!_isSplitEnabled || _rightFilesPane.Tabs.Count == 0 || closingTab is null)
+        {
+            Close();
+            return;
+        }
+
+        _rightFilesPane.MoveAllTabsTo(_leftFilesPane);
+        _leftFilesPane.CloseTab(closingTab);
+        CollapseSplitToLeftPane();
+    }
+
+    /// <summary>
+    /// Closing the last right tab closes the right pane and returns to normal mode.
+    /// </summary>
+    private void OnRightPaneLastTabClosing()
+    {
+        if (!_isSplitEnabled)
+        {
+            return;
+        }
+
+        _rightFilesPane.CloseAllTabs();
+        CollapseSplitToLeftPane();
+    }
+
+    private void CollapseSplitToLeftPane()
+    {
+        if (_isSplitEnabled)
+        {
+            ToggleDualPaneSplit();
+        }
+
+        SetSelectedPane(_leftFilesPane);
+        _leftFilesPane.ActiveTab?.FocusFileListView();
+    }
+
     public void ToggleDualPaneSplit()
     {
         _isSplitEnabled = !_isSplitEnabled;
         _filesSplit.Panel2Collapsed = !_isSplitEnabled;
+
+        if (_isSplitEnabled && _rightFilesPane.Tabs.Count == 0)
+        {
+            // The right pane was closed earlier; reopen it on the left pane's current folder.
+            _rightFilesPane.AddNewTab(_leftFilesPane.ActiveTab?.ParsingPath, activate: true);
+        }
 
         if (_isSplitEnabled)
         {
@@ -1348,6 +1391,10 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         if (_isPreviewEnabled)
         {
             _previewPane.UpdatePreview(_selectedPane?.ActiveTab?.GetFirstSelectedItemPath());
+        }
+        else
+        {
+            _previewPane.ClearPreview();
         }
 
         SyncAllPaneViewRects();
@@ -1995,9 +2042,11 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             return;
         }
 
-        if (activeTab.InvokeModernShare() ||
-            activeTab.InvokeShellVerb("Windows.ModernShare") ||
-            activeTab.InvokeShellVerb("share"))
+        // Open the native Windows share sheet for the selection (what File Explorer's Share does).
+        // The Windows.ModernShare verb is a no-op outside explorer.exe, and invoking the
+        // ModernSharing handler CLSID as an IExplorerCommand crashed with an AccessViolation.
+        List<string> selectedPaths = activeTab.GetSelectedItemPaths();
+        if (selectedPaths.Count > 0 && NativeShare.TryShowShareSheet(Handle, selectedPaths))
         {
             return;
         }
@@ -2889,6 +2938,11 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         if (disposing)
         {
             Application.RemoveMessageFilter(this);
+            if (IsHandleCreated)
+            {
+                NativeShare.Forget(Handle);
+            }
+
             _statusTimer.Stop();
             _statusTimer.Dispose();
             _toolTip.Dispose();
