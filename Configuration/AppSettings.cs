@@ -30,6 +30,10 @@ internal sealed class AppSettings
 
     public bool DefaultStartInSplitMode { get; set; } = false;
 
+    public bool EnforceGlobalDetailsAndNoGroup { get; set; } = false;
+
+    internal static bool GlobalDetailsAndNoGroupEnabled { get; set; }
+
     public uint HotkeyModifiers { get; set; } = NativeMethods.MOD_CONTROL | NativeMethods.MOD_SHIFT;
 
     public Keys HotkeyKey { get; set; } = Keys.S;
@@ -58,6 +62,7 @@ internal sealed class AppSettings
                         loaded.HotkeyModifiers = NativeMethods.MOD_CONTROL | NativeMethods.MOD_SHIFT;
                     }
 
+                    GlobalDetailsAndNoGroupEnabled = loaded.EnforceGlobalDetailsAndNoGroup;
                     return loaded;
                 }
             }
@@ -67,11 +72,14 @@ internal sealed class AppSettings
             // Fall back to defaults on corrupt or unreadable config
         }
 
-        return new AppSettings();
+        AppSettings defaults = new();
+        GlobalDetailsAndNoGroupEnabled = defaults.EnforceGlobalDetailsAndNoGroup;
+        return defaults;
     }
 
     public void Save()
     {
+        GlobalDetailsAndNoGroupEnabled = EnforceGlobalDetailsAndNoGroup;
         try
         {
             Directory.CreateDirectory(SettingsDirectory);
@@ -82,6 +90,13 @@ internal sealed class AppSettings
         {
             // Ignore write failures
         }
+    }
+
+    public static void SetGlobalDetailsAndNoGroup(bool enabled)
+    {
+        AppSettings settings = Load();
+        settings.EnforceGlobalDetailsAndNoGroup = enabled;
+        settings.Save();
     }
 
     public string FormatHotkey() => FormatHotkey(HotkeyModifiers, HotkeyKey);

@@ -23,6 +23,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _newWindowItem;
     private readonly ToolStripMenuItem _replaceExplorerItem;
     private readonly ToolStripMenuItem _defaultSplitModeItem;
+    private readonly ToolStripMenuItem _globalDetailsNoGroupItem;
     private readonly ToolStripMenuItem _titleBarButtonItem;
     private readonly ToolStripMenuItem _hotkeyItem;
     private readonly ToolStripMenuItem _sameAsLeftItem;
@@ -53,6 +54,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _newWindowItem = new ToolStripMenuItem("New ExplorerSplit Window", null, (_, _) => _splitManager.OpenNewWindow());
         _replaceExplorerItem = new ToolStripMenuItem("Replace Default File Explorer", null, OnToggleReplaceDefaultExplorer);
         _defaultSplitModeItem = new ToolStripMenuItem("Start in Split Mode by Default", null, OnToggleDefaultSplitMode);
+        _globalDetailsNoGroupItem = new ToolStripMenuItem("Always Use Details View & Group: None", null, OnToggleGlobalDetailsAndNoGroup);
         _titleBarButtonItem = new ToolStripMenuItem("Enable Title Bar Toggle Button", null, OnToggleTitleBarButton);
         _hotkeyItem = new ToolStripMenuItem(string.Empty, null, OnConfigureHotkey);
 
@@ -73,6 +75,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             new ToolStripSeparator(),
             _replaceExplorerItem,
             _defaultSplitModeItem,
+            _globalDetailsNoGroupItem,
             _titleBarButtonItem,
             _hotkeyItem,
             rightPaneMenu,
@@ -286,6 +289,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
         SyncMenuState();
     }
 
+    private void OnToggleGlobalDetailsAndNoGroup(object? sender, EventArgs e)
+    {
+        _settings.EnforceGlobalDetailsAndNoGroup = !AppSettings.GlobalDetailsAndNoGroupEnabled;
+        _settings.Save();
+        SyncMenuState();
+    }
+
     private void OnToggleTitleBarButton(object? sender, EventArgs e)
     {
         _settings.ShowTitleBarButton = !_settings.ShowTitleBarButton;
@@ -344,6 +354,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     {
         _replaceExplorerItem.Checked = _settings.ReplaceDefaultExplorer;
         _defaultSplitModeItem.Checked = _settings.DefaultStartInSplitMode;
+        _globalDetailsNoGroupItem.Checked = AppSettings.GlobalDetailsAndNoGroupEnabled;
         _titleBarButtonItem.Checked = _settings.ShowTitleBarButton;
         _hotkeyItem.Text = $"Configure Hotkey ({_settings.FormatHotkey()})...";
 

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
+using ExplorerSplit.Configuration;
 using ExplorerSplit.Core;
 using ExplorerSplit.Interop;
 using Microsoft.Win32;
@@ -2114,6 +2115,12 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             isChecked: !_groupAscending));
 
         menu.Items.Add(groupByMenu);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem(
+            "Always Use View: Details && Group: None",
+            _isDarkMode,
+            (_, _) => ToggleGlobalDetailsAndNoGroup(),
+            isChecked: AppSettings.GlobalDetailsAndNoGroupEnabled));
         menu.Show(anchor, new Point(0, anchor.Height + 2));
     }
 
@@ -2144,7 +2151,30 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         AddViewOption("Tiles", ShellBrowserInterop.FVM_TILE);
         AddViewOption("Content", ShellBrowserInterop.FVM_THUMBSTRIP);
 
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem(
+            "Always Use View: Details && Group: None",
+            _isDarkMode,
+            (_, _) => ToggleGlobalDetailsAndNoGroup(),
+            isChecked: AppSettings.GlobalDetailsAndNoGroupEnabled));
+
         menu.Show(anchor, new Point(0, anchor.Height + 2));
+    }
+
+    private void ToggleGlobalDetailsAndNoGroup()
+    {
+        bool next = !AppSettings.GlobalDetailsAndNoGroupEnabled;
+        AppSettings.SetGlobalDetailsAndNoGroup(next);
+        if (next)
+        {
+            _currentGroupByKey = null;
+            foreach (ExplorerTabInstance tab in _leftFilesPane.Tabs.Concat(_rightFilesPane.Tabs))
+            {
+                tab.EnforceDetailsAndNoGroup();
+            }
+
+            _statusBarPanel.Invalidate();
+        }
     }
 
     private void ShowMoreMenu(Control anchor)

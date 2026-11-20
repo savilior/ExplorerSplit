@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using ExplorerSplit.Configuration;
 using ExplorerSplit.Core;
 using ExplorerSplit.Interop;
 
@@ -92,6 +93,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
         _browser = browser;
         _browser.SetOptions(ShellBrowserInterop.EBO_NOBORDER | ShellBrowserInterop.EBO_ALWAYSNAVIGATE);
+        _browser.SetPropertyBag("ExplorerSplit");
 
         _folderSettings = new ShellBrowserInterop.FOLDERSETTINGS
         {
@@ -392,6 +394,39 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
             {
                 Marshal.ReleaseComObject(folderView2);
             }
+        }
+    }
+
+    public void EnforceDetailsAndNoGroup()
+    {
+        if (_browser is null || _disposed)
+        {
+            return;
+        }
+
+        SetViewMode(ShellBrowserInterop.FVM_DETAILS);
+        ApplyGroupBy(null, true);
+    }
+
+    private async Task EnforceGlobalViewAndGroupAsync()
+    {
+        try
+        {
+            await Task.Delay(80);
+            if (!_disposed && AppSettings.GlobalDetailsAndNoGroupEnabled && HostPanel.IsHandleCreated)
+            {
+                HostPanel.BeginInvoke(() =>
+                {
+                    if (!_disposed && AppSettings.GlobalDetailsAndNoGroupEnabled)
+                    {
+                        EnforceDetailsAndNoGroup();
+                    }
+                });
+            }
+        }
+        catch
+        {
+            // Ignore shutdown races
         }
     }
 
@@ -1068,6 +1103,12 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
                 {
                     if (!_disposed)
                     {
+                        if (AppSettings.GlobalDetailsAndNoGroupEnabled)
+                        {
+                            EnforceDetailsAndNoGroup();
+                            _ = EnforceGlobalViewAndGroupAsync();
+                        }
+
                         SyncRectForced();
                         NavigationCompleted?.Invoke(this);
                         _ = DelayedSyncRectAsync();
