@@ -327,11 +327,9 @@ internal static class ShellBrowserInterop
         [PreserveSig]
         int GetSortColumns([Out, MarshalAs(UnmanagedType.LPArray)] SORTCOLUMN[] rgSortColumns, int cColumns);
 
+        // NOTE: vtable order must match shobjidl_core.h exactly — COM dispatch is by slot index.
         [PreserveSig]
-        int GetGroupSubsetCount(out uint pcVisibleRows);
-
-        [PreserveSig]
-        int SetGroupSubsetCount(uint cVisibleRows);
+        int GetItem(int iItem, ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object? ppv);
 
         [PreserveSig]
         int GetVisibleItem(int iStart, [MarshalAs(UnmanagedType.Bool)] bool fPrevious, out int piItem);
@@ -353,6 +351,21 @@ internal static class ShellBrowserInterop
 
         [PreserveSig]
         int GetViewModeAndIconSize(out uint puViewMode, out int piImageSize);
+
+        [PreserveSig]
+        int SetGroupSubsetCount(uint cVisibleRows);
+
+        [PreserveSig]
+        int GetGroupSubsetCount(out uint pcVisibleRows);
+
+        [PreserveSig]
+        int SetRedraw([MarshalAs(UnmanagedType.Bool)] bool fRedrawOn);
+
+        [PreserveSig]
+        int IsMoveInSameFolder();
+
+        [PreserveSig]
+        int DoRename();
     }
 
     [ComImport]

@@ -2179,12 +2179,22 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             _currentGroupByKey = null;
         }
 
-        foreach (ExplorerTabInstance tab in _leftFilesPane.Tabs.Concat(_rightFilesPane.Tabs))
+        // Recreate the shell browsers only after the menu has fully closed; tearing down
+        // IExplorerBrowser synchronously inside the menu click handler is unsafe.
+        BeginInvoke(() =>
         {
-            tab.ReinitializeAtCurrentPath();
-        }
+            if (IsDisposed)
+            {
+                return;
+            }
 
-        _statusBarPanel.Invalidate();
+            foreach (ExplorerTabInstance tab in _leftFilesPane.Tabs.Concat(_rightFilesPane.Tabs).ToList())
+            {
+                tab.ReinitializeAtCurrentPath();
+            }
+
+            _statusBarPanel.Invalidate();
+        });
     }
 
     private void ShowMoreMenu(Control anchor)
