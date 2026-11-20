@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using ExplorerSplit.Core;
 using ExplorerSplit.Interop;
 using Microsoft.Win32;
@@ -116,9 +118,10 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
 
         Text = "File Explorer";
         Icon = _windowIcon;
-        FormBorderStyle = FormBorderStyle.None;
-        Padding = new Padding(1);
-        BackColor = _borderColor;
+        FormBorderStyle = FormBorderStyle.Sizable;
+        ControlBox = false;
+        Padding = Padding.Empty;
+        BackColor = _surfaceBg;
         ForeColor = _textColor;
         Font = _uiFont;
         MinimumSize = new Size(900, 540);
@@ -137,7 +140,7 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         // =====================================================================
         // ROW 0 (VERY TOP): Unified Title Bar & Dual-Zone Tab Strip + Min/Max/Close
         // =====================================================================
-        _titleTabBar = new DoubleBufferedPanel
+        _titleTabBar = new TitleBarHitPanel
         {
             Dock = DockStyle.Top,
             Height = 42,
@@ -464,6 +467,15 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         _leftFilesPane.TabsChanged += _ => _titleTabBar.Invalidate();
         _rightFilesPane.TabsChanged += _ => _titleTabBar.Invalidate();
 
+        _leftFilesPane.LastTabCloseRequested += _ => Close();
+        _rightFilesPane.LastTabCloseRequested += _ =>
+        {
+            if (_isSplitEnabled)
+            {
+                ToggleDualPaneSplit();
+            }
+        };
+
         _filesSplit.Panel1.Controls.Add(_leftFilesPane);
         _filesSplit.Panel2.Controls.Add(_rightFilesPane);
         _mainSplit.Panel2.Controls.Add(_filesSplit);
@@ -592,6 +604,32 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
 
     protected override void WndProc(ref Message m)
     {
+        if (m.Msg == NativeMethods.WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+        {
+            NativeMethods.NCCALCSIZE_PARAMS ncParams =
+                Marshal.PtrToStructure<NativeMethods.NCCALCSIZE_PARAMS>(m.LParam);
+
+            if (WindowState == FormWindowState.Maximized)
+            {
+                ncParams.rgrc0.Left += 8;
+                ncParams.rgrc0.Top += 8;
+                ncParams.rgrc0.Right -= 8;
+                ncParams.rgrc0.Bottom -= 8;
+            }
+            else
+            {
+                // Preserve native 7px invisible Windows 11 DWM resize border on Left, Right, and Bottom
+                ncParams.rgrc0.Left += 7;
+                ncParams.rgrc0.Top += 1;
+                ncParams.rgrc0.Right -= 7;
+                ncParams.rgrc0.Bottom -= 7;
+            }
+
+            Marshal.StructureToPtr(ncParams, m.LParam, false);
+            m.Result = IntPtr.Zero;
+            return;
+        }
+
         base.WndProc(ref m);
 
         if (m.Msg == NativeMethods.WM_NCHITTEST &&
@@ -599,17 +637,18 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             m.Result == (IntPtr)NativeMethods.HTCLIENT)
         {
             Point pt = PointToClient(new Point(m.LParam.ToInt32()));
-            const int grip = 6;
+            const int grip = 7;
+            const int corner = 14;
 
             bool left = pt.X < grip;
-            bool right = pt.X >= Width - grip;
+            bool right = pt.X >= ClientSize.Width - grip;
             bool top = pt.Y < grip;
-            bool bottom = pt.Y >= Height - grip;
+            bool bottom = pt.Y >= ClientSize.Height - grip;
 
-            if (top && left) m.Result = (IntPtr)NativeMethods.HTTOPLEFT;
-            else if (top && right) m.Result = (IntPtr)NativeMethods.HTTOPRIGHT;
-            else if (bottom && left) m.Result = (IntPtr)NativeMethods.HTBOTTOMLEFT;
-            else if (bottom && right) m.Result = (IntPtr)NativeMethods.HTBOTTOMRIGHT;
+            if (top && pt.X < corner) m.Result = (IntPtr)NativeMethods.HTTOPLEFT;
+            else if (top && pt.X >= ClientSize.Width - corner) m.Result = (IntPtr)NativeMethods.HTTOPRIGHT;
+            else if (bottom && pt.X < corner) m.Result = (IntPtr)NativeMethods.HTBOTTOMLEFT;
+            else if (bottom && pt.X >= ClientSize.Width - corner) m.Result = (IntPtr)NativeMethods.HTBOTTOMRIGHT;
             else if (left) m.Result = (IntPtr)NativeMethods.HTLEFT;
             else if (right) m.Result = (IntPtr)NativeMethods.HTRIGHT;
             else if (top) m.Result = (IntPtr)NativeMethods.HTTOP;
@@ -1250,6 +1289,8 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             }
 
             _rightFilesPane.ActiveTab?.EnsureInitialized();
+            SetSelectedPane(_rightFilesPane);
+            _rightFilesPane.ActiveTab?.FocusFileListView();
         }
         else if (_selectedPane == _rightFilesPane)
         {
@@ -1879,13 +1920,61 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
     private void ShowMoreMenu(Control anchor)
     {
         ContextMenuStrip menu = Win11MenuRenderer.CreateMenu(_isDarkMode, _uiFont);
-        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("New Tab", _isDarkMode, (_, _) => _selectedPane?.AddNewTab(activate: true), shortcutDisplay: "Ctrl+T"));
-        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Close Tab", _isDarkMode, (_, _) => _selectedPane?.CloseActiveTab(), shortcutDisplay: "Ctrl+W"));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Undo", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.UndoLastAction(), shortcutDisplay: "Ctrl+Z"));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Select all", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.SelectAllItems(), shortcutDisplay: "Ctrl+A"));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Select none", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.SelectNoneItems()));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Invert selection", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.InvertSelection()));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Properties", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.InvokeShellVerb("properties"), shortcutDisplay: "Alt+Enter"));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Open in Terminal", _isDarkMode, (_, _) => OpenActiveFolderInTerminal()));
         menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Sync Other Pane to Active Folder", _isDarkMode, (_, _) => SyncInactivePaneToActive()));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Copy Path", _isDarkMode, (_, _) => CopySelectedOrCurrentPathToClipboard()));
-        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Properties", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.InvokeShellVerb("properties"), shortcutDisplay: "Alt+Enter"));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Options", _isDarkMode, (_, _) => OpenWindowsFolderOptions()));
         menu.Show(anchor, new Point(0, anchor.Height + 2));
+    }
+
+    private void OpenActiveFolderInTerminal()
+    {
+        string? folder = _selectedPane?.ActiveTab?.DisplayPath;
+        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+        {
+            folder = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo("wt.exe", $"-d \"{folder}\"") { UseShellExecute = true });
+        }
+        catch
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("powershell.exe", $"-NoExit -Command \"Set-Location -LiteralPath '{folder}'\"")
+                {
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+                // Ignore if terminal cannot be started
+            }
+        }
+    }
+
+    private static void OpenWindowsFolderOptions()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("rundll32.exe", "shell32.dll,Options_RunDLL 0")
+            {
+                UseShellExecute = false
+            });
+        }
+        catch
+        {
+            // Ignore
+        }
     }
 
     private void CopySelectedOrCurrentPathToClipboard()
@@ -2490,12 +2579,28 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         }
     }
 
-    private sealed class DoubleBufferedPanel : Panel
+    private class DoubleBufferedPanel : Panel
     {
         public DoubleBufferedPanel()
         {
             DoubleBuffered = true;
             ResizeRedraw = true;
+        }
+    }
+
+    private sealed class TitleBarHitPanel : DoubleBufferedPanel
+    {
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == NativeMethods.WM_NCHITTEST && m.Result == (IntPtr)NativeMethods.HTCLIENT)
+            {
+                Point pt = PointToClient(new Point(m.LParam.ToInt32()));
+                if (pt.Y < 7 || pt.X < 7 || pt.X >= Width - 7)
+                {
+                    m.Result = (IntPtr)NativeMethods.HTTRANSPARENT;
+                }
+            }
         }
     }
 

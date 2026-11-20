@@ -12,6 +12,7 @@ internal sealed class TabbedExplorerPane : Panel
     public event Action<TabbedExplorerPane>? PaneSelected;
     public event Action<TabbedExplorerPane, ExplorerTabInstance>? ActiveTabStateChanged;
     public event Action<TabbedExplorerPane>? TabsChanged;
+    public event Action<TabbedExplorerPane>? LastTabCloseRequested;
 
     public TabbedExplorerPane(string paneName, bool isDarkMode)
     {
@@ -129,7 +130,7 @@ internal sealed class TabbedExplorerPane : Panel
 
         if (_tabs.Count == 1)
         {
-            tab.NavigateToPath(ExplorerDetector.HomeShellGuid);
+            LastTabCloseRequested?.Invoke(this);
             return;
         }
 

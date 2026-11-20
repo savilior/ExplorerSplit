@@ -71,11 +71,13 @@ internal static class NativeMethods
     internal const int WM_SETFOCUS = 0x0007;
     internal const int WM_CLOSE = 0x0010;
     internal const int WM_MOUSEACTIVATE = 0x0021;
+    internal const int WM_NCCALCSIZE = 0x0083;
     internal const int WM_NCHITTEST = 0x0084;
     internal const int WM_NCLBUTTONDOWN = 0x00A1;
     internal const int WM_KEYDOWN = 0x0100;
     internal const int WM_KEYUP = 0x0101;
     internal const int WM_SYSKEYDOWN = 0x0104;
+    internal const int WM_COMMAND = 0x0111;
     internal const int WM_LBUTTONDOWN = 0x0201;
     internal const int WM_RBUTTONDOWN = 0x0204;
     internal const int WM_MBUTTONDOWN = 0x0207;
@@ -83,6 +85,7 @@ internal static class NativeMethods
     internal const int MA_NOACTIVATE = 3;
 
     // Hit test constants
+    internal const int HTTRANSPARENT = -1;
     internal const int HTCLIENT = 1;
     internal const int HTCAPTION = 2;
     internal const int HTLEFT = 10;
@@ -179,6 +182,15 @@ internal static class NativeMethods
     {
         public int X;
         public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NCCALCSIZE_PARAMS
+    {
+        public RECT rgrc0;
+        public RECT rgrc1;
+        public RECT rgrc2;
+        public IntPtr lppos;
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -699,6 +699,70 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         }
     }
 
+    public void SelectAllItems() => SendShellViewCommand(0x7021); // FCIDM_SHVIEW_SELECTALL
+
+    public void InvertSelection() => SendShellViewCommand(0x7022); // FCIDM_SHVIEW_INVERTSELECTION
+
+    public void UndoLastAction() => SendShellViewCommand(0x701C); // FCIDM_SHVIEW_UNDO
+
+    public void SelectNoneItems()
+    {
+        if (_browser is null || _disposed)
+        {
+            return;
+        }
+
+        Guid iid = ShellBrowserInterop.IidIFolderView2;
+        if (_browser.GetCurrentView(ref iid, out object? fvObj) == 0 &&
+            fvObj is ShellBrowserInterop.IFolderView2 folderView2)
+        {
+            try
+            {
+                const uint SVSI_DESELECTOTHERS = 0x0004;
+                folderView2.SelectItem(-1, SVSI_DESELECTOTHERS);
+            }
+            catch
+            {
+                // Ignore
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(folderView2);
+            }
+        }
+    }
+
+    private void SendShellViewCommand(int commandId)
+    {
+        if (_browser is null || _disposed)
+        {
+            return;
+        }
+
+        Guid iidView = ShellBrowserInterop.IidIShellView;
+        if (_browser.GetCurrentView(ref iidView, out object? viewObj) != 0 ||
+            viewObj is not ShellBrowserInterop.IShellView shellView)
+        {
+            return;
+        }
+
+        try
+        {
+            if (shellView.GetWindow(out IntPtr viewHwnd) == 0 && viewHwnd != IntPtr.Zero)
+            {
+                NativeMethods.SendMessage(viewHwnd, NativeMethods.WM_COMMAND, new IntPtr(commandId), IntPtr.Zero);
+            }
+        }
+        catch
+        {
+            // Ignore
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(shellView);
+        }
+    }
+
     public void FocusFileListView()
     {
         if (_browser is null || _disposed)
