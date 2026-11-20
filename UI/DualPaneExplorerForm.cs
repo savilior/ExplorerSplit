@@ -9,7 +9,11 @@ namespace ExplorerSplit.UI;
 
 internal sealed class DualPaneExplorerForm : Form, IMessageFilter
 {
-    private readonly record struct BreadcrumbSegment(string Label, string TargetPath, Rectangle Bounds);
+    private readonly record struct BreadcrumbSegment(
+        string Label,
+        string TargetPath,
+        Rectangle LabelBounds,
+        Rectangle ChevronBounds);
 
     private readonly record struct TitleTabHitBox(
         TabbedExplorerPane Pane,
@@ -24,6 +28,7 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
     private readonly TabbedExplorerPane _rightFilesPane;
     private readonly SplitContainer _mainSplit;
     private readonly SplitContainer _filesSplit;
+    private readonly PreviewPaneControl _previewPane;
 
     private readonly Panel _breadcrumbView;
     private readonly TextBox _addressTextBox;
@@ -71,13 +76,19 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
     private bool _isDraggingTab;
 
     private readonly List<BreadcrumbSegment> _breadcrumbs = new();
+    private Rectangle _rootIconBounds;
+    private Rectangle _rootChevronBounds;
+    private bool _hoveredRootIcon;
+    private bool _hoveredRootChevron;
     private int _hoveredBreadcrumbIndex = -1;
+    private int _hoveredChevronIndex = -1;
     private bool _isEditingAddress;
     private string _searchPlaceholder = "Search Home";
     private bool _isSearchPlaceholderActive = true;
 
     private TabbedExplorerPane _selectedPane;
     private bool _isSplitEnabled;
+    private bool _isPreviewEnabled;
     private bool _sortAscending = true;
     private ShellBrowserInterop.PROPERTYKEY _currentSortKey = ShellBrowserInterop.PKEY_ItemNameDisplay;
     private ShellBrowserInterop.PROPERTYKEY? _currentGroupByKey;
@@ -358,8 +369,10 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         Control pasteCmdBtn = CreateVectorIconButton("Paste (Ctrl+V)", 36, 32, DrawPasteClipboardIcon, () =>
             _selectedPane?.ActiveTab?.InvokeShellVerb("paste", onBackground: true));
         Control renameCmdBtn = CreateVectorIconButton("Rename (F2)", 36, 32, DrawRenameBoxIcon, () =>
-            _selectedPane?.ActiveTab?.InvokeShellVerb("rename"));
-        Control shareCmdBtn = CreateVectorIconButton("Copy Path / Share", 36, 32, DrawShareArrowIcon, CopySelectedOrCurrentPathToClipboard);
+            _selectedPane?.ActiveTab?.RenameSelectedItem());
+        Control? shareCmdBtn = null;
+        shareCmdBtn = CreateVectorIconButton("Share", 36, 32, DrawShareArrowIcon, () =>
+            ShareOrCopyActiveSelection(shareCmdBtn!));
         Control deleteCmdBtn = CreateVectorIconButton("Delete (Del)", 36, 32, DrawTrashCanIcon, () =>
             _selectedPane?.ActiveTab?.InvokeShellVerb("delete"));
 
@@ -384,10 +397,32 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             moreBtn
         ]);
 
-        Control splitPreviewBtn = CreateCommandBarToggleButton("Split", 82, DrawSplitPaneIcon, () => _isSplitEnabled, ToggleDualPaneSplit);
-        splitPreviewBtn.Dock = DockStyle.Right;
+        FlowLayoutPanel rightCommandFlow = new()
+        {
+            Dock = DockStyle.Right,
+            AutoSize = true,
+            WrapContents = false,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty
+        };
 
-        commandBarRow.Controls.Add(splitPreviewBtn);
+        Control previewBtn = CreateCommandBarToggleButton(
+            "Preview",
+            86,
+            DrawPreviewPaneIcon,
+            () => _isPreviewEnabled,
+            TogglePreviewPane,
+            "Show or hide the preview pane (Alt+P)");
+        Control splitBtn = CreateCommandBarToggleButton(
+            "Split",
+            76,
+            DrawSplitPaneIcon,
+            () => _isSplitEnabled,
+            ToggleDualPaneSplit,
+            "Toggle side-by-side Split View (Ctrl+Shift+S)");
+
+        rightCommandFlow.Controls.AddRange([splitBtn, previewBtn]);
+        commandBarRow.Controls.Add(rightCommandFlow);
         commandBarRow.Controls.Add(leftCommandFlow);
 
         Panel commandBottomBorder = new()
@@ -476,11 +511,14 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             }
         };
 
+        _previewPane = new PreviewPaneControl(_isDarkMode);
+
         _filesSplit.Panel1.Controls.Add(_leftFilesPane);
         _filesSplit.Panel2.Controls.Add(_rightFilesPane);
         _mainSplit.Panel2.Controls.Add(_filesSplit);
 
         Controls.Add(_mainSplit);
+        Controls.Add(_previewPane);
         Controls.Add(_statusBarPanel);
         Controls.Add(commandBottomBorder);
         Controls.Add(commandBarRow);
@@ -1302,6 +1340,19 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         Invalidate(true);
     }
 
+    public void TogglePreviewPane()
+    {
+        _isPreviewEnabled = !_isPreviewEnabled;
+        _previewPane.Visible = _isPreviewEnabled;
+        if (_isPreviewEnabled)
+        {
+            _previewPane.UpdatePreview(_selectedPane?.ActiveTab?.GetFirstSelectedItemPath());
+        }
+
+        SyncAllPaneViewRects();
+        Invalidate(true);
+    }
+
     public void SetSelectedPane(TabbedExplorerPane pane)
     {
         if (!_isSplitEnabled && pane == _rightFilesPane)
@@ -1371,15 +1422,23 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             _currentStatus = newStatus;
             _statusBarPanel.Invalidate();
         }
+
+        if (_isPreviewEnabled)
+        {
+            _previewPane.UpdatePreview(activeTab.GetFirstSelectedItemPath());
+        }
     }
 
     // =====================================================================
-    // Breadcrumb Address Bar Rendering & Interaction (Matching Image 1)
+    // Breadcrumb Address Bar Rendering & Interaction (Matching Native Explorer)
     // =====================================================================
     private void RebuildBreadcrumbs(ExplorerTabInstance? tab)
     {
         _breadcrumbs.Clear();
+        _hoveredRootIcon = false;
+        _hoveredRootChevron = false;
         _hoveredBreadcrumbIndex = -1;
+        _hoveredChevronIndex = -1;
 
         if (tab is null)
         {
@@ -1423,17 +1482,21 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             rawParts = rawParts.Skip(rawParts.Count - maxSegments).ToList();
         }
 
-        int currentX = 34;
         int height = Math.Max(22, _breadcrumbView.Height - 4);
         int topY = (_breadcrumbView.Height - height) / 2;
 
+        _rootIconBounds = new Rectangle(6, topY, 24, height);
+        _rootChevronBounds = new Rectangle(30, topY, 16, height);
+
+        int currentX = _rootChevronBounds.Right + 2;
         foreach ((string label, string target) in rawParts)
         {
             Size textSize = TextRenderer.MeasureText(label, _addressFont);
             int segWidth = Math.Min(180, textSize.Width + 14);
-            Rectangle segRect = new(currentX, topY, segWidth, height);
-            _breadcrumbs.Add(new BreadcrumbSegment(label, target, segRect));
-            currentX += segWidth + 16;
+            Rectangle labelRect = new(currentX, topY, segWidth, height);
+            Rectangle chevRect = new(labelRect.Right, topY, 16, height);
+            _breadcrumbs.Add(new BreadcrumbSegment(label, target, labelRect, chevRect));
+            currentX = chevRect.Right + 2;
         }
     }
 
@@ -1442,6 +1505,13 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
+        if (_hoveredRootIcon)
+        {
+            using GraphicsPath p = IconFactory.CreateRoundedRect(_rootIconBounds, 4);
+            using SolidBrush b = new(_controlHoverBg);
+            g.FillPath(b, p);
+        }
+
         ExplorerTabInstance? tab = _selectedPane?.ActiveTab;
         if (tab?.TabIcon is not null)
         {
@@ -1449,7 +1519,14 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             g.DrawImage(tab.TabIcon, new Rectangle(10, iconY, 16, 16));
         }
 
-        DrawRightChevron(g, new Rectangle(28, (_breadcrumbView.Height - 12) / 2, 8, 12), _mutedTextColor);
+        if (_hoveredRootChevron)
+        {
+            using GraphicsPath p = IconFactory.CreateRoundedRect(_rootChevronBounds, 4);
+            using SolidBrush b = new(_controlHoverBg);
+            g.FillPath(b, p);
+        }
+
+        DrawRightChevron(g, _rootChevronBounds, _mutedTextColor);
 
         for (int i = 0; i < _breadcrumbs.Count; i++)
         {
@@ -1457,7 +1534,7 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
 
             if (i == _hoveredBreadcrumbIndex)
             {
-                using GraphicsPath hoverPath = IconFactory.CreateRoundedRect(seg.Bounds, 4);
+                using GraphicsPath hoverPath = IconFactory.CreateRoundedRect(seg.LabelBounds, 4);
                 using SolidBrush hoverBrush = new(_controlHoverBg);
                 g.FillPath(hoverBrush, hoverPath);
             }
@@ -1466,32 +1543,59 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
                 g,
                 seg.Label,
                 _addressFont,
-                seg.Bounds,
+                seg.LabelBounds,
                 _textColor,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
 
-            Rectangle chevRect = new(seg.Bounds.Right + 4, (_breadcrumbView.Height - 12) / 2, 8, 12);
-            DrawRightChevron(g, chevRect, _mutedTextColor);
+            if (i == _hoveredChevronIndex)
+            {
+                using GraphicsPath chevHoverPath = IconFactory.CreateRoundedRect(seg.ChevronBounds, 4);
+                using SolidBrush chevHoverBrush = new(_controlHoverBg);
+                g.FillPath(chevHoverBrush, chevHoverPath);
+            }
+
+            DrawRightChevron(g, seg.ChevronBounds, _mutedTextColor);
         }
     }
 
     private void OnBreadcrumbMouseMove(object? sender, MouseEventArgs e)
     {
-        int hovered = -1;
-        for (int i = 0; i < _breadcrumbs.Count; i++)
+        bool newRootIcon = _rootIconBounds.Contains(e.Location);
+        bool newRootChev = !newRootIcon && _rootChevronBounds.Contains(e.Location);
+        int hoveredLabel = -1;
+        int hoveredChev = -1;
+
+        if (!newRootIcon && !newRootChev)
         {
-            if (_breadcrumbs[i].Bounds.Contains(e.Location))
+            for (int i = 0; i < _breadcrumbs.Count; i++)
             {
-                hovered = i;
-                break;
+                if (_breadcrumbs[i].LabelBounds.Contains(e.Location))
+                {
+                    hoveredLabel = i;
+                    break;
+                }
+
+                if (_breadcrumbs[i].ChevronBounds.Contains(e.Location))
+                {
+                    hoveredChev = i;
+                    break;
+                }
             }
         }
 
-        _breadcrumbView.Cursor = hovered >= 0 ? Cursors.Hand : Cursors.IBeam;
+        _breadcrumbView.Cursor = (newRootIcon || newRootChev || hoveredLabel >= 0 || hoveredChev >= 0)
+            ? Cursors.Hand
+            : Cursors.IBeam;
 
-        if (hovered != _hoveredBreadcrumbIndex)
+        if (newRootIcon != _hoveredRootIcon ||
+            newRootChev != _hoveredRootChevron ||
+            hoveredLabel != _hoveredBreadcrumbIndex ||
+            hoveredChev != _hoveredChevronIndex)
         {
-            _hoveredBreadcrumbIndex = hovered;
+            _hoveredRootIcon = newRootIcon;
+            _hoveredRootChevron = newRootChev;
+            _hoveredBreadcrumbIndex = hoveredLabel;
+            _hoveredChevronIndex = hoveredChev;
             _breadcrumbView.Invalidate();
         }
     }
@@ -1503,16 +1607,117 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             return;
         }
 
+        // Pressing the first breadcrumb icon brings the proper full path and selects it
+        if (_rootIconBounds.Contains(e.Location))
+        {
+            EnterAddressEditMode();
+            return;
+        }
+
+        if (_rootChevronBounds.Contains(e.Location))
+        {
+            ShowBreadcrumbRootDropdown(_rootChevronBounds);
+            return;
+        }
+
         for (int i = 0; i < _breadcrumbs.Count; i++)
         {
-            if (_breadcrumbs[i].Bounds.Contains(e.Location))
+            if (_breadcrumbs[i].LabelBounds.Contains(e.Location))
             {
                 _selectedPane?.ActiveTab?.NavigateToPath(_breadcrumbs[i].TargetPath);
+                return;
+            }
+
+            if (_breadcrumbs[i].ChevronBounds.Contains(e.Location))
+            {
+                ShowBreadcrumbSubfolderDropdown(_breadcrumbs[i].TargetPath, _breadcrumbs[i].ChevronBounds);
                 return;
             }
         }
 
         EnterAddressEditMode();
+    }
+
+    private void ShowBreadcrumbRootDropdown(Rectangle anchorRect)
+    {
+        ContextMenuStrip menu = Win11MenuRenderer.CreateMenu(_isDarkMode, _uiFont);
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Home", _isDarkMode, (_, _) =>
+            _selectedPane?.ActiveTab?.NavigateToPath(ExplorerDetector.HomeShellGuid)));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("This PC", _isDarkMode, (_, _) =>
+            _selectedPane?.ActiveTab?.NavigateToPath("::{20D04FE0-3AEA-1069-A2D8-08002B30309D}")));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Desktop", _isDarkMode, (_, _) =>
+            _selectedPane?.ActiveTab?.NavigateToPath(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory))));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Documents", _isDarkMode, (_, _) =>
+            _selectedPane?.ActiveTab?.NavigateToPath(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments))));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Downloads", _isDarkMode, (_, _) =>
+            _selectedPane?.ActiveTab?.NavigateToPath(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"))));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Recycle Bin", _isDarkMode, (_, _) =>
+            _selectedPane?.ActiveTab?.NavigateToPath("::{645FF040-5081-101B-9F08-00AA002F954E}")));
+
+        menu.Show(_breadcrumbView, new Point(anchorRect.Left, anchorRect.Bottom + 2));
+    }
+
+    private void ShowBreadcrumbSubfolderDropdown(string folderPath, Rectangle anchorRect)
+    {
+        ContextMenuStrip menu = Win11MenuRenderer.CreateMenu(_isDarkMode, _uiFont);
+
+        if (folderPath.Equals("::{20D04FE0-3AEA-1069-A2D8-08002B30309D}", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (DriveInfo drive in DriveInfo.GetDrives())
+            {
+                try
+                {
+                    if (!drive.IsReady) continue;
+                    string label = string.IsNullOrWhiteSpace(drive.VolumeLabel)
+                        ? $"Local Disk ({drive.Name.TrimEnd('\\')})"
+                        : $"{drive.VolumeLabel} ({drive.Name.TrimEnd('\\')})";
+                    string target = drive.RootDirectory.FullName;
+                    menu.Items.Add(Win11MenuRenderer.CreateMenuItem(label, _isDarkMode, (_, _) =>
+                        _selectedPane?.ActiveTab?.NavigateToPath(target)));
+                }
+                catch
+                {
+                    // Ignore inaccessible drives
+                }
+            }
+        }
+        else if (Directory.Exists(folderPath))
+        {
+            try
+            {
+                int added = 0;
+                foreach (DirectoryInfo dir in new DirectoryInfo(folderPath).EnumerateDirectories())
+                {
+                    if ((dir.Attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0)
+                    {
+                        continue;
+                    }
+
+                    string target = dir.FullName;
+                    menu.Items.Add(Win11MenuRenderer.CreateMenuItem(dir.Name, _isDarkMode, (_, _) =>
+                        _selectedPane?.ActiveTab?.NavigateToPath(target)));
+
+                    added++;
+                    if (added >= 40)
+                    {
+                        break;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore access denied
+            }
+        }
+
+        if (menu.Items.Count == 0)
+        {
+            ToolStripMenuItem empty = Win11MenuRenderer.CreateMenuItem("(No subfolders)", _isDarkMode);
+            empty.Enabled = false;
+            menu.Items.Add(empty);
+        }
+
+        menu.Show(_breadcrumbView, new Point(anchorRect.Left, anchorRect.Bottom + 2));
     }
 
     private void EnterAddressEditMode()
@@ -1770,9 +1975,34 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
     {
         ContextMenuStrip menu = Win11MenuRenderer.CreateMenu(_isDarkMode, _uiFont);
         menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Folder", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.CreateNewFolder(), shortcutDisplay: "Ctrl+Shift+N"));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Shortcut", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.CreateNewShortcut()));
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Bitmap image", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.CreateNewBitmapImage()));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Rich Text Document", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.CreateNewRichTextDocument()));
         menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Text Document", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.CreateNewTextDocument()));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Compressed (zipped) Folder", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.CreateNewZipArchive()));
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(Win11MenuRenderer.CreateMenuItem("New Tab in Active Pane", _isDarkMode, (_, _) => _selectedPane?.AddNewTab(activate: true), shortcutDisplay: "Ctrl+T"));
+        menu.Show(anchor, new Point(0, anchor.Height + 2));
+    }
+
+    private void ShareOrCopyActiveSelection(Control anchor)
+    {
+        ExplorerTabInstance? activeTab = _selectedPane?.ActiveTab;
+        if (activeTab is null)
+        {
+            return;
+        }
+
+        if (activeTab.InvokeShellVerb("ModernShare") || activeTab.InvokeShellVerb("share"))
+        {
+            return;
+        }
+
+        ContextMenuStrip menu = Win11MenuRenderer.CreateMenu(_isDarkMode, _uiFont);
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Copy as path", _isDarkMode, (_, _) => CopySelectedOrCurrentPathToClipboard()));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Copy file", _isDarkMode, (_, _) => activeTab.InvokeShellVerb("copy"), shortcutDisplay: "Ctrl+C"));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Properties", _isDarkMode, (_, _) => activeTab.InvokeShellVerb("properties"), shortcutDisplay: "Alt+Enter"));
         menu.Show(anchor, new Point(0, anchor.Height + 2));
     }
 
@@ -2100,7 +2330,8 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         int width,
         Action<Graphics, Rectangle, Color> drawIcon,
         Func<bool> isToggledOn,
-        Action onClick)
+        Action onClick,
+        string tooltip)
     {
         DoubleBufferedControl btn = new()
         {
@@ -2143,7 +2374,7 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         };
 
-        _toolTip.SetToolTip(btn, "Toggle side-by-side Split View (Ctrl+Shift+S)");
+        _toolTip.SetToolTip(btn, tooltip);
         return btn;
     }
 
@@ -2239,65 +2470,110 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
 
     private static void DrawCutScissorsIcon(Graphics g, Rectangle r, Color c)
     {
-        using Pen p = new(c, 1.3f);
+        using Pen p = new(c, 1.3f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
         int cx = r.Left + r.Width / 2;
         int cy = r.Top + r.Height / 2;
-        g.DrawEllipse(p, cx - 5, cy + 1, 4, 4);
-        g.DrawEllipse(p, cx + 1, cy + 1, 4, 4);
-        g.DrawLine(p, cx - 2, cy + 1, cx + 3, cy - 6);
-        g.DrawLine(p, cx + 2, cy + 1, cx - 3, cy - 6);
+        g.DrawEllipse(p, cx - 6, cy + 1, 4.5f, 4.5f);
+        g.DrawEllipse(p, cx + 1.5f, cy + 1, 4.5f, 4.5f);
+        g.DrawLine(p, cx - 2.5f, cy + 1.5f, cx + 4.5f, cy - 6.5f);
+        g.DrawLine(p, cx + 2.5f, cy + 1.5f, cx - 4.5f, cy - 6.5f);
     }
 
     private static void DrawCopyPagesIcon(Graphics g, Rectangle r, Color c)
     {
-        using Pen p = new(c, 1.3f);
+        using Pen p = new(c, 1.25f) { LineJoin = LineJoin.Round };
         int cx = r.Left + r.Width / 2;
         int cy = r.Top + r.Height / 2;
-        g.DrawRectangle(p, cx - 2, cy - 4, 8, 10);
+        // Back page
+        g.DrawLine(p, cx - 5, cy + 3, cx - 5, cy - 6);
         g.DrawLine(p, cx - 5, cy - 6, cx + 3, cy - 6);
-        g.DrawLine(p, cx - 5, cy - 6, cx - 5, cy + 3);
+        // Front page
+        using GraphicsPath front = IconFactory.CreateRoundedRect(new Rectangle(cx - 2, cy - 3, 8, 10), 1);
+        g.DrawPath(p, front);
     }
 
     private static void DrawPasteClipboardIcon(Graphics g, Rectangle r, Color c)
     {
-        using Pen p = new(c, 1.3f);
+        using Pen p = new(c, 1.25f) { LineJoin = LineJoin.Round };
         int cx = r.Left + r.Width / 2;
         int cy = r.Top + r.Height / 2;
-        g.DrawRectangle(p, cx - 5, cy - 5, 10, 12);
-        g.DrawRectangle(p, cx - 2, cy - 7, 4, 2);
+        // Clipboard board
+        using GraphicsPath board = IconFactory.CreateRoundedRect(new Rectangle(cx - 6, cy - 5, 10, 12), 1);
+        g.DrawPath(p, board);
+        // Top clip
+        g.DrawRectangle(p, cx - 3, cy - 7, 4, 2);
+        // Small document overlay on bottom-right
+        using SolidBrush fill = new(Color.FromArgb(40, c));
+        g.FillRectangle(fill, cx, cy, 5, 6);
+        g.DrawRectangle(p, cx, cy, 5, 6);
     }
 
-    private static void DrawRenameBoxIcon(Graphics g, Rectangle r, Color c)
+    private void DrawRenameBoxIcon(Graphics g, Rectangle r, Color c)
     {
-        using Pen p = new(c, 1.3f);
         int cx = r.Left + r.Width / 2;
         int cy = r.Top + r.Height / 2;
-        g.DrawRectangle(p, cx - 7, cy - 4, 14, 9);
-        using Pen accent = new(Color.FromArgb(0, 120, 212), 1.4f);
-        g.DrawLine(accent, cx + 2, cy - 6, cx + 2, cy + 7);
+        using Pen p = new(c, 1.25f);
+        using GraphicsPath box = IconFactory.CreateRoundedRect(new Rectangle(cx - 7, cy - 4, 14, 9), 1);
+        g.DrawPath(p, box);
+
+        // 'A' inside left side of box
+        using Pen aPen = new(c, 1.2f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+        g.DrawLine(aPen, cx - 4.5f, cy + 2.5f, cx - 2.5f, cy - 2);
+        g.DrawLine(aPen, cx - 2.5f, cy - 2, cx - 0.5f, cy + 2.5f);
+        g.DrawLine(aPen, cx - 4, cy + 1, cx - 1, cy + 1);
+
+        // I-beam cursor on right side
+        using Pen beam = new(_accentColor, 1.4f);
+        g.DrawLine(beam, cx + 3, cy - 6, cx + 3, cy + 7);
+        g.DrawLine(beam, cx + 1.5f, cy - 6, cx + 4.5f, cy - 6);
+        g.DrawLine(beam, cx + 1.5f, cy + 7, cx + 4.5f, cy + 7);
     }
 
     private static void DrawShareArrowIcon(Graphics g, Rectangle r, Color c)
     {
-        using Pen p = new(c, 1.3f);
+        using Pen p = new(c, 1.25f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
         int cx = r.Left + r.Width / 2;
         int cy = r.Top + r.Height / 2;
-        g.DrawRectangle(p, cx - 6, cy - 3, 11, 9);
-        g.DrawLine(p, cx - 1, cy + 1, cx + 6, cy - 5);
-        g.DrawLine(p, cx + 6, cy - 5, cx + 2, cy - 5);
-        g.DrawLine(p, cx + 6, cy - 5, cx + 6, cy - 1);
+        // Open rounded square (top-right corner open for arrow)
+        g.DrawLine(p, cx, cy - 4, cx - 5, cy - 4);
+        g.DrawLine(p, cx - 5, cy - 4, cx - 5, cy + 5);
+        g.DrawLine(p, cx - 5, cy + 5, cx + 4, cy + 5);
+        g.DrawLine(p, cx + 4, cy + 5, cx + 4, cy);
+        // Arrow emerging up-right
+        g.DrawLine(p, cx - 1, cy + 1, cx + 6, cy - 6);
+        g.DrawLine(p, cx + 2, cy - 6, cx + 6, cy - 6);
+        g.DrawLine(p, cx + 6, cy - 6, cx + 6, cy - 2);
     }
 
     private static void DrawTrashCanIcon(Graphics g, Rectangle r, Color c)
     {
-        using Pen p = new(c, 1.3f);
+        using Pen p = new(c, 1.25f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
         int cx = r.Left + r.Width / 2;
         int cy = r.Top + r.Height / 2;
-        g.DrawRectangle(p, cx - 4, cy - 3, 8, 10);
-        g.DrawLine(p, cx - 6, cy - 3, cx + 6, cy - 3);
-        g.DrawLine(p, cx - 2, cy - 5, cx + 2, cy - 5);
-        g.DrawLine(p, cx - 1, cy - 1, cx - 1, cy + 4);
-        g.DrawLine(p, cx + 1, cy - 1, cx + 1, cy + 4);
+        // Lid and handle
+        g.DrawLine(p, cx - 6, cy - 4, cx + 6, cy - 4);
+        g.DrawLine(p, cx - 2, cy - 4, cx - 2, cy - 6);
+        g.DrawLine(p, cx - 2, cy - 6, cx + 2, cy - 6);
+        g.DrawLine(p, cx + 2, cy - 6, cx + 2, cy - 4);
+        // Bin body
+        g.DrawLine(p, cx - 4.5f, cy - 4, cx - 3.5f, cy + 6);
+        g.DrawLine(p, cx - 3.5f, cy + 6, cx + 3.5f, cy + 6);
+        g.DrawLine(p, cx + 3.5f, cy + 6, cx + 4.5f, cy - 4);
+        // Inner ribs
+        g.DrawLine(p, cx - 1.5f, cy - 1.5f, cx - 1.5f, cy + 3.5f);
+        g.DrawLine(p, cx + 1.5f, cy - 1.5f, cx + 1.5f, cy + 3.5f);
+    }
+
+    private void DrawPreviewPaneIcon(Graphics g, Rectangle r, Color c)
+    {
+        int cx = r.Left + r.Width / 2;
+        int cy = r.Top + r.Height / 2;
+        Rectangle box = new(cx - 7, cy - 5, 14, 11);
+        using Pen p = new(c, 1.25f);
+        using GraphicsPath path = IconFactory.CreateRoundedRect(box, 2);
+        g.DrawPath(p, path);
+        using Pen div = new(_accentColor, 1.4f);
+        g.DrawLine(div, cx + 1, box.Top + 1, cx + 1, box.Bottom - 1);
     }
 
     private void DrawSortArrowsIcon(Graphics g, Rectangle r, Color c)

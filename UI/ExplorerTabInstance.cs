@@ -506,7 +506,9 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         }
     }
 
-    public string? GetFirstSelectedOrCurrentPath()
+    public string? GetFirstSelectedOrCurrentPath() => GetFirstSelectedItemPath() ?? DisplayPath;
+
+    public string? GetFirstSelectedItemPath()
     {
         if (_browser is not null && !_disposed)
         {
@@ -553,7 +555,50 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
             }
         }
 
-        return DisplayPath;
+        return null;
+    }
+
+    public bool RenameSelectedItem()
+    {
+        if (_browser is null || _disposed)
+        {
+            return false;
+        }
+
+        FocusFileListView();
+
+        Guid iid = ShellBrowserInterop.IidIFolderView2;
+        if (_browser.GetCurrentView(ref iid, out object? fvObj) == 0 &&
+            fvObj is ShellBrowserInterop.IFolderView2 folderView2)
+        {
+            try
+            {
+                if (folderView2.GetFocusedItem(out int idx) != 0 || idx < 0)
+                {
+                    folderView2.GetSelectionMarkedItem(out idx);
+                }
+
+                if (idx >= 0)
+                {
+                    const uint SVSI_SELECT = 0x0001;
+                    const uint SVSI_EDIT = 0x0003;
+                    if (folderView2.SelectItem(idx, SVSI_SELECT | SVSI_EDIT) == 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                // Fall back to F2 key message
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(folderView2);
+            }
+        }
+
+        return InvokeShellVerb("rename");
     }
 
     public bool CreateNewFolder()
@@ -584,7 +629,58 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         }
     }
 
-    public bool CreateNewTextDocument()
+    public bool CreateNewTextDocument() =>
+        CreateNewFileWithExtension("New Text Document", ".txt");
+
+    public bool CreateNewBitmapImage()
+    {
+        using Bitmap bmp = new(1, 1);
+        using MemoryStream ms = new();
+        bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Bmp);
+        return CreateNewFileWithExtension("New Bitmap image", ".bmp", ms.ToArray());
+    }
+
+    public bool CreateNewRichTextDocument() =>
+        CreateNewFileWithExtension(
+            "New Rich Text Document",
+            ".rtf",
+            System.Text.Encoding.ASCII.GetBytes(@"{\rtf1\ansi\deff0}"));
+
+    public bool CreateNewZipArchive()
+    {
+        // Standard empty 22-byte End-of-Central-Directory ZIP header
+        byte[] emptyZip =
+        [
+            0x50, 0x4B, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        ];
+        return CreateNewFileWithExtension("New Compressed (zipped) Folder", ".zip", emptyZip);
+    }
+
+    public void CreateNewShortcut()
+    {
+        if (_disposed || string.IsNullOrWhiteSpace(DisplayPath) || !Directory.Exists(DisplayPath))
+        {
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                "rundll32.exe",
+                $"appwiz.cpl,NewLinkHere {DisplayPath}")
+            {
+                UseShellExecute = false
+            });
+        }
+        catch
+        {
+            // Ignore
+        }
+    }
+
+    public bool CreateNewFileWithExtension(string baseName, string extension, byte[]? initialBytes = null)
     {
         if (_disposed || string.IsNullOrWhiteSpace(DisplayPath) || !Directory.Exists(DisplayPath))
         {
@@ -593,16 +689,23 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
         try
         {
-            string baseName = "New Text Document";
-            string candidate = Path.Combine(DisplayPath, $"{baseName}.txt");
+            string candidate = Path.Combine(DisplayPath, $"{baseName}{extension}");
             int counter = 2;
             while (File.Exists(candidate) || Directory.Exists(candidate))
             {
-                candidate = Path.Combine(DisplayPath, $"{baseName} ({counter}).txt");
+                candidate = Path.Combine(DisplayPath, $"{baseName} ({counter}){extension}");
                 counter++;
             }
 
-            File.WriteAllText(candidate, string.Empty);
+            if (initialBytes is { Length: > 0 })
+            {
+                File.WriteAllBytes(candidate, initialBytes);
+            }
+            else
+            {
+                File.WriteAllText(candidate, string.Empty);
+            }
+
             RefreshView();
             return true;
         }
