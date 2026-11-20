@@ -1,12 +1,12 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
-using ExplorerSplit.Configuration;
-using ExplorerSplit.Core;
-using ExplorerSplit.Interop;
+using Explorer2.Configuration;
+using Explorer2.Core;
+using Explorer2.Interop;
 using Microsoft.Win32;
 
-namespace ExplorerSplit.UI;
+namespace Explorer2.UI;
 
 internal sealed class DualPaneExplorerForm : Form, IMessageFilter
 {
@@ -758,7 +758,7 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         int captionLeft = _minCaptionBounds.Left;
         int leftZoneStartX = GetLeftFilesPaneHorizontalStartX();
 
-        // Draw App Icon and Name ("ExplorerSplit") on the left side of the title bar above the Left Source Pane
+        // Draw App Icon and Name ("Explorer2") on the left side of the title bar above the Left Source Pane
         int iconY = (barH - 18) / 2;
         g.DrawImage(_titleAppIcon, new Rectangle(12, iconY, 18, 18));
 
@@ -768,7 +768,7 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             Rectangle brandTextRect = new(36, 0, brandMaxRight - 36, barH);
             TextRenderer.DrawText(
                 g,
-                "ExplorerSplit",
+                "Explorer2",
                 _tabActiveFont,
                 brandTextRect,
                 _textColor,

@@ -1,7 +1,7 @@
-using ExplorerSplit.Core;
-using ExplorerSplit.Interop;
+using Explorer2.Core;
+using Explorer2.Interop;
 
-namespace ExplorerSplit.UI;
+namespace Explorer2.UI;
 
 internal sealed class TabbedExplorerPane : Panel
 {

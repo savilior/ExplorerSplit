@@ -1,8 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using ExplorerSplit.Interop;
+using Explorer2.Interop;
 
-namespace ExplorerSplit.Configuration;
+namespace Explorer2.Configuration;
 
 internal enum RightPanePathMode
 {
@@ -20,9 +20,29 @@ internal sealed class AppSettings
     };
 
     private static string SettingsDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ExplorerSplit");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Explorer2");
 
     private static string SettingsFilePath => Path.Combine(SettingsDirectory, "settings.json");
+
+    // Settings location used before the app was renamed from ExplorerSplit to Explorer2.
+    private static string LegacySettingsFilePath =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ExplorerSplit", "settings.json");
+
+    private static void MigrateLegacySettingsIfNeeded()
+    {
+        try
+        {
+            if (!File.Exists(SettingsFilePath) && File.Exists(LegacySettingsFilePath))
+            {
+                Directory.CreateDirectory(SettingsDirectory);
+                File.Copy(LegacySettingsFilePath, SettingsFilePath);
+            }
+        }
+        catch
+        {
+            // Fall back to defaults if the legacy file cannot be copied
+        }
+    }
 
     public bool ShowTitleBarButton { get; set; } = true;
 
@@ -44,6 +64,8 @@ internal sealed class AppSettings
 
     public static AppSettings Load()
     {
+        MigrateLegacySettingsIfNeeded();
+
         try
         {
             if (File.Exists(SettingsFilePath))

@@ -1,6 +1,6 @@
 using Microsoft.Win32;
 
-namespace ExplorerSplit.Configuration;
+namespace Explorer2.Configuration;
 
 internal static class ExplorerReplacementManager
 {

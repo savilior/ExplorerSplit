@@ -2,9 +2,9 @@ using System.Collections;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using ExplorerSplit.Interop;
+using Explorer2.Interop;
 
-namespace ExplorerSplit.Core;
+namespace Explorer2.Core;
 
 internal static class ExplorerDetector
 {

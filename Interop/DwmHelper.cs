@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace ExplorerSplit.Interop;
+namespace Explorer2.Interop;
 
 internal readonly record struct BorderMargins(int Left, int Top, int Right, int Bottom);
 

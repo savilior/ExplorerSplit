@@ -1,13 +1,13 @@
 using System.IO.Pipes;
-using ExplorerSplit.Configuration;
-using ExplorerSplit.Core;
-using ExplorerSplit.Interop;
+using Explorer2.Configuration;
+using Explorer2.Core;
+using Explorer2.Interop;
 
-namespace ExplorerSplit.UI;
+namespace Explorer2.UI;
 
 internal sealed class TrayApplicationContext : ApplicationContext
 {
-    public const string IpcPipeName = "ExplorerSplit_WindowIPC";
+    public const string IpcPipeName = "Explorer2_WindowIPC";
     private const int HotkeyId = 1;
 
     private readonly AppSettings _settings;
@@ -51,7 +51,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _overlayButton.SplitToggleRequested += OnOverlaySplitRequested;
         _hotkeyWindow.HotkeyPressed += OnHotkeyPressed;
 
-        _newWindowItem = new ToolStripMenuItem("New ExplorerSplit Window", null, (_, _) => _splitManager.OpenNewWindow());
+        _newWindowItem = new ToolStripMenuItem("New Explorer2 Window", null, (_, _) => _splitManager.OpenNewWindow());
         _replaceExplorerItem = new ToolStripMenuItem("Replace Default File Explorer", null, OnToggleReplaceDefaultExplorer);
         _defaultSplitModeItem = new ToolStripMenuItem("Start in Split Mode by Default", null, OnToggleDefaultSplitMode);
         _globalDetailsNoGroupItem = new ToolStripMenuItem("Always Use Details View & Group: None", null, OnToggleGlobalDetailsAndNoGroup);
@@ -89,7 +89,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _notifyIcon = new NotifyIcon
         {
             Icon = _trayIcon,
-            Text = "ExplorerSplit — File Explorer",
+            Text = "Explorer2 — File Explorer",
             ContextMenuStrip = menu,
             Visible = true
         };
@@ -100,6 +100,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _overlayGuardTimer.Start();
 
         ExplorerReplacementManager.SetEnabled(_settings.ReplaceDefaultExplorer);
+        StartupManager.MigrateLegacyEntry();
 
         SyncMenuState();
         RefreshOverlayAndHotkey();

@@ -1,9 +1,9 @@
 using System.Runtime.InteropServices;
-using ExplorerSplit.Configuration;
-using ExplorerSplit.Core;
-using ExplorerSplit.Interop;
+using Explorer2.Configuration;
+using Explorer2.Core;
+using Explorer2.Interop;
 
-namespace ExplorerSplit.UI;
+namespace Explorer2.UI;
 
 internal readonly record struct FolderStatusInfo(
     int TotalItems,
@@ -21,6 +21,11 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
     private string _lastNonSearchPath;
     private bool _initialized;
     private bool _disposed;
+
+    // Shell property-bag names keep the pre-rename identifiers so per-folder view state
+    // saved by earlier versions (when the app was named ExplorerSplit) is preserved.
+    private const string LegacyPropertyBag = "ExplorerSplit";
+    private const string LegacyPropertyBagGlobal = "ExplorerSplit_Global";
 
     private int _cachedSelectedCount = -1;
     private string? _cachedFirstSelectedPath;
@@ -94,7 +99,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
         _browser = browser;
         _browser.SetOptions(ShellBrowserInterop.EBO_NOBORDER | ShellBrowserInterop.EBO_ALWAYSNAVIGATE);
-        _browser.SetPropertyBag(AppSettings.GlobalDetailsAndNoGroupEnabled ? "ExplorerSplit_Global" : "ExplorerSplit");
+        _browser.SetPropertyBag(AppSettings.GlobalDetailsAndNoGroupEnabled ? LegacyPropertyBagGlobal : LegacyPropertyBag);
 
         _folderSettings = new ShellBrowserInterop.FOLDERSETTINGS
         {

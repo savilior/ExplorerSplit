@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace ExplorerSplit.Interop;
+namespace Explorer2.Interop;
 
 internal static class ShellBrowserInterop
 {

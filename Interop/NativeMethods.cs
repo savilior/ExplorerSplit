@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace ExplorerSplit.Interop;
+namespace Explorer2.Interop;
 
 internal static class NativeMethods
 {

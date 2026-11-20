@@ -1,7 +1,7 @@
 using System.Drawing.Drawing2D;
-using ExplorerSplit.Interop;
+using Explorer2.Interop;
 
-namespace ExplorerSplit.UI;
+namespace Explorer2.UI;
 
 internal static class IconFactory
 {
@@ -30,7 +30,7 @@ internal static class IconFactory
             g.FillRectangle(fallbackBrush, 2, 6, 28, 21);
         }
 
-        // Aesthetic vertical split line down the center of the folder to denote ExplorerSplit.
+        // Aesthetic vertical split line down the center of the folder to denote Explorer2.
         const int splitX = 16;
         using (Pen glowPen = new(Color.FromArgb(215, 255, 255, 255), 3f) { StartCap = LineCap.Round, EndCap = LineCap.Round })
         {

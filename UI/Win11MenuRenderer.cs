@@ -1,7 +1,7 @@
 using System.Drawing.Drawing2D;
-using ExplorerSplit.Interop;
+using Explorer2.Interop;
 
-namespace ExplorerSplit.UI;
+namespace Explorer2.UI;
 
 internal sealed class Win11MenuRenderer : ToolStripProfessionalRenderer
 {

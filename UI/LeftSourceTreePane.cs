@@ -1,9 +1,9 @@
 using System.Collections;
 using System.Runtime.InteropServices;
-using ExplorerSplit.Core;
-using ExplorerSplit.Interop;
+using Explorer2.Core;
+using Explorer2.Interop;
 
-namespace ExplorerSplit.UI;
+namespace Explorer2.UI;
 
 [ComVisible(true)]
 internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpaceTreeControlEvents

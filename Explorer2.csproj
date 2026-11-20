@@ -7,16 +7,16 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>Resources\ExplorerSplit.ico</ApplicationIcon>
+    <ApplicationIcon>Resources\Explorer2.ico</ApplicationIcon>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- app.manifest intentionally declares PerMonitorV2 DPI awareness for Win32/DWM accuracy -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
     <DefaultItemExcludes>$(DefaultItemExcludes);backups\**</DefaultItemExcludes>
-    <AssemblyName>ExplorerSplit</AssemblyName>
-    <RootNamespace>ExplorerSplit</RootNamespace>
+    <AssemblyName>Explorer2</AssemblyName>
+    <RootNamespace>Explorer2</RootNamespace>
     <Version>1.0.0</Version>
-    <Product>ExplorerSplit</Product>
-    <Description>Lightweight Windows 11 side-by-side split view companion for native File Explorer</Description>
+    <Product>Explorer2</Product>
+    <Description>Explorer2 — lightweight Windows 11 side-by-side split view companion for native File Explorer</Description>
   </PropertyGroup>
 
 </Project>

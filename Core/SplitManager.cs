@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using ExplorerSplit.Configuration;
-using ExplorerSplit.Interop;
-using ExplorerSplit.UI;
+using Explorer2.Configuration;
+using Explorer2.Interop;
+using Explorer2.UI;
 
-namespace ExplorerSplit.Core;
+namespace Explorer2.Core;
 
 internal sealed class SplitManager : IDisposable
 {

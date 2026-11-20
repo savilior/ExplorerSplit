@@ -1,7 +1,7 @@
-using ExplorerSplit.Configuration;
-using ExplorerSplit.Interop;
+using Explorer2.Configuration;
+using Explorer2.Interop;
 
-namespace ExplorerSplit.UI;
+namespace Explorer2.UI;
 
 internal sealed class HotkeyConfigDialog : Form
 {
@@ -98,7 +98,7 @@ internal sealed class HotkeyConfigDialog : Form
                 MessageBox.Show(
                     this,
                     "Please select at least one modifier key (Ctrl, Shift, or Alt) and a primary key.",
-                    "ExplorerSplit",
+                    "Explorer2",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
                 return;

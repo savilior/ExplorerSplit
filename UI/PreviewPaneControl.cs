@@ -1,4 +1,4 @@
-namespace ExplorerSplit.UI;
+namespace Explorer2.UI;
 
 internal sealed class PreviewPaneControl : Panel
 {

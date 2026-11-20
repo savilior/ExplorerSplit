@@ -1,12 +1,12 @@
 using System.IO.Pipes;
-using ExplorerSplit.Configuration;
-using ExplorerSplit.UI;
+using Explorer2.Configuration;
+using Explorer2.UI;
 
-namespace ExplorerSplit;
+namespace Explorer2;
 
 internal static class Program
 {
-    private const string CoordinatorMutexName = @"Local\ExplorerSplit_Coordinator_Mutex";
+    private const string CoordinatorMutexName = @"Local\Explorer2_Coordinator_Mutex";
 
     [STAThread]
     private static void Main(string[] args)
