@@ -1995,7 +1995,9 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             return;
         }
 
-        if (activeTab.InvokeShellVerb("ModernShare") || activeTab.InvokeShellVerb("share"))
+        if (activeTab.InvokeModernShare() ||
+            activeTab.InvokeShellVerb("Windows.ModernShare") ||
+            activeTab.InvokeShellVerb("share"))
         {
             return;
         }
@@ -2120,7 +2122,8 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             "Always Use View: Details && Group: None",
             _isDarkMode,
             (_, _) => ToggleGlobalDetailsAndNoGroup(),
-            isChecked: AppSettings.GlobalDetailsAndNoGroupEnabled));
+            isChecked: AppSettings.GlobalDetailsAndNoGroupEnabled,
+            isCheckBox: true));
         menu.Show(anchor, new Point(0, anchor.Height + 2));
     }
 
@@ -2128,35 +2131,41 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
     {
         ContextMenuStrip menu = Win11MenuRenderer.CreateMenu(_isDarkMode, _uiFont);
         uint currentMode = _selectedPane?.ActiveTab?.CurrentViewMode ?? ShellBrowserInterop.FVM_DETAILS;
+        int currentIconSize = _selectedPane?.ActiveTab?.CurrentIconSize ?? 16;
 
-        void AddViewOption(string label, uint mode)
+        void AddViewOption(string label, uint mode, int iconSize, bool isChecked)
         {
             ToolStripMenuItem item = Win11MenuRenderer.CreateMenuItem(
                 label,
                 _isDarkMode,
                 (_, _) =>
                 {
-                    _selectedPane?.ActiveTab?.SetViewMode(mode);
+                    _selectedPane?.ActiveTab?.SetViewMode(mode, iconSize);
                     _statusBarPanel.Invalidate();
                 },
-                isChecked: currentMode == mode);
+                isChecked: isChecked);
             menu.Items.Add(item);
         }
 
-        AddViewOption("Extra large icons", ShellBrowserInterop.FVM_THUMBNAIL);
-        AddViewOption("Large icons", ShellBrowserInterop.FVM_ICON);
-        AddViewOption("Small icons", ShellBrowserInterop.FVM_SMALLICON);
-        AddViewOption("List", ShellBrowserInterop.FVM_LIST);
-        AddViewOption("Details", ShellBrowserInterop.FVM_DETAILS);
-        AddViewOption("Tiles", ShellBrowserInterop.FVM_TILE);
-        AddViewOption("Content", ShellBrowserInterop.FVM_THUMBSTRIP);
+        bool isIconMode = currentMode == ShellBrowserInterop.FVM_ICON ||
+                          currentMode == ShellBrowserInterop.FVM_THUMBNAIL;
+
+        AddViewOption("Extra large icons", ShellBrowserInterop.FVM_ICON, 256, isIconMode && currentIconSize >= 128);
+        AddViewOption("Large icons", ShellBrowserInterop.FVM_ICON, 96, isIconMode && currentIconSize >= 64 && currentIconSize < 128);
+        AddViewOption("Medium icons", ShellBrowserInterop.FVM_ICON, 48, isIconMode && currentIconSize < 64);
+        AddViewOption("Small icons", ShellBrowserInterop.FVM_SMALLICON, 16, currentMode == ShellBrowserInterop.FVM_SMALLICON);
+        AddViewOption("List", ShellBrowserInterop.FVM_LIST, 16, currentMode == ShellBrowserInterop.FVM_LIST);
+        AddViewOption("Details", ShellBrowserInterop.FVM_DETAILS, 16, currentMode == ShellBrowserInterop.FVM_DETAILS);
+        AddViewOption("Tiles", ShellBrowserInterop.FVM_TILE, 48, currentMode == ShellBrowserInterop.FVM_TILE);
+        AddViewOption("Content", ShellBrowserInterop.FVM_CONTENT, 32, currentMode == ShellBrowserInterop.FVM_CONTENT || currentMode == ShellBrowserInterop.FVM_THUMBSTRIP);
 
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(Win11MenuRenderer.CreateMenuItem(
             "Always Use View: Details && Group: None",
             _isDarkMode,
             (_, _) => ToggleGlobalDetailsAndNoGroup(),
-            isChecked: AppSettings.GlobalDetailsAndNoGroupEnabled));
+            isChecked: AppSettings.GlobalDetailsAndNoGroupEnabled,
+            isCheckBox: true));
 
         menu.Show(anchor, new Point(0, anchor.Height + 2));
     }
@@ -2168,13 +2177,14 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         if (next)
         {
             _currentGroupByKey = null;
-            foreach (ExplorerTabInstance tab in _leftFilesPane.Tabs.Concat(_rightFilesPane.Tabs))
-            {
-                tab.EnforceDetailsAndNoGroup();
-            }
-
-            _statusBarPanel.Invalidate();
         }
+
+        foreach (ExplorerTabInstance tab in _leftFilesPane.Tabs.Concat(_rightFilesPane.Tabs))
+        {
+            tab.ReinitializeAtCurrentPath();
+        }
+
+        _statusBarPanel.Invalidate();
     }
 
     private void ShowMoreMenu(Control anchor)
@@ -2561,6 +2571,20 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
 
     private static void DrawShareArrowIcon(Graphics g, Rectangle r, Color c)
     {
+        // Render Windows 11 native Fluent Share glyph (\uE72D) when available
+        using Font fluentFont = new("Segoe Fluent Icons", 12.5f, FontStyle.Regular, GraphicsUnit.Point);
+        if (fluentFont.Name.Equals("Segoe Fluent Icons", StringComparison.OrdinalIgnoreCase))
+        {
+            TextRenderer.DrawText(
+                g,
+                "\uE72D",
+                fluentFont,
+                r,
+                c,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            return;
+        }
+
         using Pen p = new(c, 1.25f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
         int cx = r.Left + r.Width / 2;
         int cy = r.Top + r.Height / 2;

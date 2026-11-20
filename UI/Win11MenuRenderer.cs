@@ -48,11 +48,13 @@ internal sealed class Win11MenuRenderer : ToolStripProfessionalRenderer
         bool isDarkMode,
         EventHandler? onClick = null,
         bool isChecked = false,
-        string? shortcutDisplay = null)
+        string? shortcutDisplay = null,
+        bool isCheckBox = false)
     {
         ToolStripMenuItem item = new(text)
         {
             Checked = isChecked,
+            Tag = isCheckBox ? "checkbox" : null,
             Padding = new Padding(6, 5, 12, 5),
             Margin = new Padding(0, 1, 0, 1),
             ShortcutKeyDisplayString = shortcutDisplay ?? string.Empty
@@ -146,11 +148,28 @@ internal sealed class Win11MenuRenderer : ToolStripProfessionalRenderer
 
     protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
     {
-        // Draw Windows 11 crisp radio dot bullet '•'
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         int cx = e.ImageRectangle.Left + e.ImageRectangle.Width / 2;
-        int cy = e.Item.ContentRectangle.Top + e.Item.ContentRectangle.Height / 2;
+        int cy = e.Item.Height / 2;
 
+        if (e.Item.Tag is string tag && tag == "checkbox")
+        {
+            using Pen checkPen = new(_textColor, 1.6f)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round,
+                LineJoin = LineJoin.Round
+            };
+            e.Graphics.DrawLines(checkPen, new Point[]
+            {
+                new(cx - 4, cy),
+                new(cx - 1, cy + 3),
+                new(cx + 5, cy - 3)
+            });
+            return;
+        }
+
+        // Draw Windows 11 crisp radio dot bullet '•'
         using SolidBrush dotBrush = new(_accentColor);
         e.Graphics.FillEllipse(dotBrush, cx - 3, cy - 3, 6, 6);
     }

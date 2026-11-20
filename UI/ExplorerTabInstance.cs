@@ -62,6 +62,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
     public string DisplayPath { get; private set; }
     public string ParsingPath { get; private set; }
     public uint CurrentViewMode { get; private set; }
+    public int CurrentIconSize { get; private set; } = 16;
     public Bitmap? TabIcon { get; private set; }
 
     public string TabDisplayHeader =>
@@ -93,7 +94,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
         _browser = browser;
         _browser.SetOptions(ShellBrowserInterop.EBO_NOBORDER | ShellBrowserInterop.EBO_ALWAYSNAVIGATE);
-        _browser.SetPropertyBag("ExplorerSplit");
+        _browser.SetPropertyBag(AppSettings.GlobalDetailsAndNoGroupEnabled ? "ExplorerSplit_Global" : "ExplorerSplit");
 
         _folderSettings = new ShellBrowserInterop.FOLDERSETTINGS
         {
@@ -310,7 +311,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         NavigateToPath(ParsingPath);
     }
 
-    public void SetViewMode(uint viewMode)
+    public void SetViewMode(uint viewMode, int iconSize = 0)
     {
         if (_browser is null || _disposed)
         {
@@ -318,8 +319,40 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         }
 
         CurrentViewMode = viewMode;
+        if (iconSize > 0)
+        {
+            CurrentIconSize = iconSize;
+        }
+
         _folderSettings.ViewMode = viewMode;
         _browser.SetFolderSettings(ref _folderSettings);
+
+        Guid iid2 = ShellBrowserInterop.IidIFolderView2;
+        if (_browser.GetCurrentView(ref iid2, out object? fv2Obj) == 0 &&
+            fv2Obj is ShellBrowserInterop.IFolderView2 folderView2)
+        {
+            try
+            {
+                int targetSize = iconSize > 0 ? iconSize : -1;
+                if (folderView2.SetViewModeAndIconSize(viewMode, targetSize) == 0)
+                {
+                    if (folderView2.GetViewModeAndIconSize(out uint actualMode, out int actualSize) == 0)
+                    {
+                        CurrentViewMode = actualMode;
+                        CurrentIconSize = actualSize;
+                    }
+                    return;
+                }
+            }
+            catch
+            {
+                // Fall back to IFolderView.SetCurrentViewMode
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(folderView2);
+            }
+        }
 
         Guid iid = ShellBrowserInterop.IidIFolderView;
         if (_browser.GetCurrentView(ref iid, out object? fvObj) == 0 &&
@@ -404,8 +437,56 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
             return;
         }
 
-        SetViewMode(ShellBrowserInterop.FVM_DETAILS);
+        SetViewMode(ShellBrowserInterop.FVM_DETAILS, 16);
         ApplyGroupBy(null, true);
+    }
+
+    public void ReinitializeAtCurrentPath()
+    {
+        if (_disposed || !HostPanel.IsHandleCreated)
+        {
+            return;
+        }
+
+        _pendingPath = !string.IsNullOrWhiteSpace(ParsingPath)
+            ? ParsingPath
+            : !string.IsNullOrWhiteSpace(DisplayPath)
+                ? DisplayPath
+                : ExplorerDetector.HomeShellGuid;
+
+        DestroyBrowser();
+        _initialized = false;
+        EnsureInitialized();
+    }
+
+    private void SyncViewModeFromBrowser()
+    {
+        if (_browser is null || _disposed)
+        {
+            return;
+        }
+
+        Guid iid2 = ShellBrowserInterop.IidIFolderView2;
+        if (_browser.GetCurrentView(ref iid2, out object? fv2Obj) == 0 &&
+            fv2Obj is ShellBrowserInterop.IFolderView2 folderView2)
+        {
+            try
+            {
+                if (folderView2.GetViewModeAndIconSize(out uint actualMode, out int actualSize) == 0)
+                {
+                    CurrentViewMode = actualMode;
+                    CurrentIconSize = actualSize;
+                }
+            }
+            catch
+            {
+                // Ignore views that do not report mode/size
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(folderView2);
+            }
+        }
     }
 
     private async Task EnforceGlobalViewAndGroupAsync()
@@ -747,6 +828,68 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         catch
         {
             return false;
+        }
+    }
+
+    public bool InvokeModernShare()
+    {
+        if (_browser is null || _disposed)
+        {
+            return false;
+        }
+
+        Guid iid2 = ShellBrowserInterop.IidIFolderView2;
+        if (_browser.GetCurrentView(ref iid2, out object? fv2Obj) != 0 ||
+            fv2Obj is not ShellBrowserInterop.IFolderView2 folderView2)
+        {
+            return false;
+        }
+
+        IntPtr pSelection = IntPtr.Zero;
+        object? shareCmdObj = null;
+        try
+        {
+            if (folderView2.GetSelection(false, out pSelection) != 0 || pSelection == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            Type? shareType = Type.GetTypeFromCLSID(ShellBrowserInterop.ClsidModernShare);
+            if (shareType is null)
+            {
+                return false;
+            }
+
+            shareCmdObj = Activator.CreateInstance(shareType);
+            if (shareCmdObj is not ShellBrowserInterop.IExplorerCommand explorerCommand)
+            {
+                return false;
+            }
+
+            if (shareCmdObj is ShellBrowserInterop.IObjectWithSite withSite)
+            {
+                withSite.SetSite(_browser);
+            }
+
+            return explorerCommand.Invoke(pSelection, IntPtr.Zero) == 0;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            if (shareCmdObj is not null && Marshal.IsComObject(shareCmdObj))
+            {
+                Marshal.ReleaseComObject(shareCmdObj);
+            }
+
+            if (pSelection != IntPtr.Zero)
+            {
+                Marshal.Release(pSelection);
+            }
+
+            Marshal.ReleaseComObject(folderView2);
         }
     }
 
@@ -1107,6 +1250,10 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
                         {
                             EnforceDetailsAndNoGroup();
                             _ = EnforceGlobalViewAndGroupAsync();
+                        }
+                        else
+                        {
+                            SyncViewModeFromBrowser();
                         }
 
                         SyncRectForced();

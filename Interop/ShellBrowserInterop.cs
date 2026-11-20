@@ -6,6 +6,7 @@ internal static class ShellBrowserInterop
 {
     internal static readonly Guid ClsidExplorerBrowser = new("71F96385-DDD6-48D3-A0C1-AE06E8B055FB");
     internal static readonly Guid ClsidNamespaceTreeControl = new("AE054212-3535-4430-83ED-D501AA6680E6");
+    internal static readonly Guid ClsidModernShare = new("E2BF9676-5F8F-435C-97EB-11607A5BEDF7");
     internal static readonly Guid IidIShellItem = new("43826D1E-E718-42EE-BC55-A1E261C37BFE");
     internal static readonly Guid IidIShellItemArray = new("B63EA76D-1F85-456F-A19C-48159EFA858B");
     internal static readonly Guid IidIShellView = new("000214E3-0000-0000-C000-000000000046");
@@ -30,6 +31,7 @@ internal static class ShellBrowserInterop
     internal const uint FVM_THUMBNAIL = 5;
     internal const uint FVM_TILE = 6;
     internal const uint FVM_THUMBSTRIP = 7;
+    internal const uint FVM_CONTENT = 8;
 
     internal const uint FWF_NONE = 0x00000000;
     internal const uint FWF_AUTOARRANGE = 0x00000001;
@@ -324,6 +326,33 @@ internal static class ShellBrowserInterop
 
         [PreserveSig]
         int GetSortColumns([Out, MarshalAs(UnmanagedType.LPArray)] SORTCOLUMN[] rgSortColumns, int cColumns);
+
+        [PreserveSig]
+        int GetGroupSubsetCount(out uint pcVisibleRows);
+
+        [PreserveSig]
+        int SetGroupSubsetCount(uint cVisibleRows);
+
+        [PreserveSig]
+        int GetVisibleItem(int iStart, [MarshalAs(UnmanagedType.Bool)] bool fPrevious, out int piItem);
+
+        [PreserveSig]
+        int GetSelectedItem(int iStart, out int piItem);
+
+        [PreserveSig]
+        int GetSelection([MarshalAs(UnmanagedType.Bool)] bool fNoneImpliesFolder, out IntPtr ppsia);
+
+        [PreserveSig]
+        int GetSelectionState(IntPtr pidl, out uint pdwFlags);
+
+        [PreserveSig]
+        int InvokeVerbOnSelection([MarshalAs(UnmanagedType.LPStr)] string? pszVerb);
+
+        [PreserveSig]
+        int SetViewModeAndIconSize(uint uViewMode, int iImageSize);
+
+        [PreserveSig]
+        int GetViewModeAndIconSize(out uint puViewMode, out int piImageSize);
     }
 
     [ComImport]
@@ -339,6 +368,42 @@ internal static class ShellBrowserInterop
 
         [PreserveSig]
         int GetCommandString(UIntPtr idCmd, uint uType, IntPtr pReserved, IntPtr pszName, uint cchMax);
+    }
+
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("A08CE4D0-FA25-44AB-B57C-C7B1C323E0B9")]
+    internal interface IExplorerCommand
+    {
+        [PreserveSig]
+        int GetTitle(IntPtr psiItemArray, out IntPtr ppszName);
+
+        [PreserveSig]
+        int GetIcon(IntPtr psiItemArray, out IntPtr ppszIcon);
+
+        [PreserveSig]
+        int GetToolTip(IntPtr psiItemArray, out IntPtr ppszInfotip);
+
+        [PreserveSig]
+        int GetCanonicalName(out Guid pguidCommandName);
+
+        [PreserveSig]
+        int GetState(IntPtr psiItemArray, [MarshalAs(UnmanagedType.Bool)] bool fOkToBeSlow, out uint pCmdState);
+
+        [PreserveSig]
+        int Invoke(IntPtr psiItemArray, IntPtr pbc);
+    }
+
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("FC4801A3-2BA9-11CF-A229-00AA003D7352")]
+    internal interface IObjectWithSite
+    {
+        [PreserveSig]
+        int SetSite([MarshalAs(UnmanagedType.IUnknown)] object? pUnkSite);
+
+        [PreserveSig]
+        int GetSite(ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object? ppvSite);
     }
 
     [ComImport]
