@@ -28,6 +28,8 @@ internal sealed class AppSettings
 
     public bool ReplaceDefaultExplorer { get; set; } = false;
 
+    public bool DefaultStartInSplitMode { get; set; } = false;
+
     public uint HotkeyModifiers { get; set; } = NativeMethods.MOD_CONTROL | NativeMethods.MOD_SHIFT;
 
     public Keys HotkeyKey { get; set; } = Keys.S;

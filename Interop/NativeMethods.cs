@@ -20,6 +20,12 @@ internal static class NativeMethods
     internal const int OBJID_WINDOW = 0;
     internal const int CHILDID_SELF = 0;
 
+    // Low-level keyboard hook constants
+    internal const int WH_KEYBOARD_LL = 13;
+    internal const int VK_LWIN = 0x5B;
+    internal const int VK_RWIN = 0x5C;
+    internal const int VK_E = 0x45;
+
     // SetWindowPos flags
     internal const uint SWP_NOSIZE = 0x0001;
     internal const uint SWP_NOMOVE = 0x0002;
@@ -121,6 +127,18 @@ internal static class NativeMethods
 
     internal delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
+    internal delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct KBDLLHOOKSTRUCT
+    {
+        public uint vkCode;
+        public uint scanCode;
+        public uint flags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct RECT : IEquatable<RECT>
     {
@@ -219,6 +237,22 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    internal static extern short GetAsyncKeyState(int vKey);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern IntPtr GetModuleHandle(string? lpModuleName);
 
     [DllImport("user32.dll")]
     internal static extern IntPtr GetForegroundWindow();

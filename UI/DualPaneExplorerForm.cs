@@ -75,7 +75,7 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
     private bool _isSearchPlaceholderActive = true;
 
     private TabbedExplorerPane _selectedPane;
-    private bool _isSplitEnabled = true;
+    private bool _isSplitEnabled;
     private bool _sortAscending = true;
     private ShellBrowserInterop.PROPERTYKEY _currentSortKey = ShellBrowserInterop.PKEY_ItemNameDisplay;
     private ShellBrowserInterop.PROPERTYKEY? _currentGroupByKey;
@@ -86,8 +86,13 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
     private Rectangle _statusIconsBtnBounds;
     private int _hoveredStatusViewBtn; // 0 = none, 1 = details, 2 = icons
 
-    public DualPaneExplorerForm(string? initialLeftPath = null, string? initialRightPath = null, Rectangle? initialBounds = null)
+    public DualPaneExplorerForm(
+        string? initialLeftPath = null,
+        string? initialRightPath = null,
+        Rectangle? initialBounds = null,
+        bool startInSplit = false)
     {
+        _isSplitEnabled = startInSplit;
         _isDarkMode = IsSystemDarkMode();
 
         _titleBarBg = _isDarkMode ? Color.FromArgb(26, 26, 30) : Color.FromArgb(224, 224, 231);
@@ -484,6 +489,7 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
 
         _leftFilesPane.AddNewTab(startLeft, activate: true);
         _rightFilesPane.AddNewTab(startRight, activate: true);
+        _filesSplit.Panel2Collapsed = !_isSplitEnabled;
 
         _statusTimer = new System.Windows.Forms.Timer { Interval = 250 };
         _statusTimer.Tick += (_, _) => RefreshStatusInfo();
@@ -540,7 +546,10 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
 
         SetSelectedPane(_leftFilesPane);
         _leftFilesPane.ActiveTab?.EnsureInitialized();
-        _rightFilesPane.ActiveTab?.EnsureInitialized();
+        if (_isSplitEnabled)
+        {
+            _rightFilesPane.ActiveTab?.EnsureInitialized();
+        }
         SyncAllPaneViewRects();
         _titleTabBar.Invalidate();
     }

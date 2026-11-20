@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using ExplorerSplit.Configuration;
 using ExplorerSplit.Interop;
 using ExplorerSplit.UI;
@@ -7,11 +9,14 @@ namespace ExplorerSplit.Core;
 internal sealed class SplitManager : IDisposable
 {
     private readonly AppSettings _settings;
+    private readonly List<DualPaneExplorerForm> _windows = new();
     private readonly List<IntPtr> _hookHandles = new();
     private readonly HashSet<IntPtr> _interceptedExplorers = new();
     private readonly NativeMethods.WinEventDelegate _winEventDelegate;
+    private readonly NativeMethods.LowLevelKeyboardProc _keyboardHookDelegate;
+    private readonly SynchronizationContext? _uiSyncContext;
 
-    private DualPaneExplorerForm? _dualPaneForm;
+    private IntPtr _keyboardHookHandle;
     private bool _disposed;
 
     public event Action? StateChanged;
@@ -21,16 +26,19 @@ internal sealed class SplitManager : IDisposable
     public SplitManager(AppSettings settings)
     {
         _settings = settings;
+        _uiSyncContext = SynchronizationContext.Current;
         _winEventDelegate = OnWinEvent;
+        _keyboardHookDelegate = OnLowLevelKeyboard;
+
         InstallHooks();
+        UpdateWinEHook();
     }
 
-    public bool IsPaired(IntPtr explorerHwnd) =>
-        _dualPaneForm is not null &&
-        !_dualPaneForm.IsDisposed &&
-        _dualPaneForm.Visible &&
-        _dualPaneForm.IsSplitEnabled &&
-        explorerHwnd == _dualPaneForm.Handle;
+    public bool IsPaired(IntPtr explorerHwnd)
+    {
+        DualPaneExplorerForm? owned = FindOwnedWindow(explorerHwnd);
+        return owned is not null && owned.Visible && owned.IsSplitEnabled;
+    }
 
     public IntPtr ResolveExplorerWindow(IntPtr hwnd)
     {
@@ -44,19 +52,43 @@ internal sealed class SplitManager : IDisposable
             return hwnd;
         }
 
-        if (_dualPaneForm is not null &&
-            !_dualPaneForm.IsDisposed &&
-            _dualPaneForm.IsHandleCreated &&
-            (hwnd == _dualPaneForm.Handle || NativeMethods.IsChild(_dualPaneForm.Handle, hwnd)))
-        {
-            return _dualPaneForm.Handle;
-        }
-
-        return IntPtr.Zero;
+        DualPaneExplorerForm? owned = FindOwnedWindow(hwnd);
+        return owned is not null ? owned.Handle : IntPtr.Zero;
     }
 
-    public int ActivePairCount =>
-        _dualPaneForm is not null && !_dualPaneForm.IsDisposed && _dualPaneForm.Visible ? 1 : 0;
+    public int ActivePairCount
+    {
+        get
+        {
+            CleanupClosedWindows();
+            return _windows.Count;
+        }
+    }
+
+    public void UpdateWinEHook()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (_settings.ReplaceDefaultExplorer && _keyboardHookHandle == IntPtr.Zero)
+        {
+            using Process currentProcess = Process.GetCurrentProcess();
+            using ProcessModule? mainModule = currentProcess.MainModule;
+            IntPtr moduleHandle = NativeMethods.GetModuleHandle(mainModule?.ModuleName);
+            _keyboardHookHandle = NativeMethods.SetWindowsHookEx(
+                NativeMethods.WH_KEYBOARD_LL,
+                _keyboardHookDelegate,
+                moduleHandle,
+                0);
+        }
+        else if (!_settings.ReplaceDefaultExplorer && _keyboardHookHandle != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWindowsHookEx(_keyboardHookHandle);
+            _keyboardHookHandle = IntPtr.Zero;
+        }
+    }
 
     public Task ToggleSplitAsync(IntPtr explorerHwnd)
     {
@@ -64,12 +96,18 @@ internal sealed class SplitManager : IDisposable
         return Task.CompletedTask;
     }
 
-    public void OpenDualPaneWindow(string? leftPath = null, string? rightPath = null, Rectangle? bounds = null)
+    public void OpenNewWindow(
+        string? leftPath = null,
+        string? rightPath = null,
+        Rectangle? bounds = null,
+        bool? startInSplit = null)
     {
         if (_disposed)
         {
             return;
         }
+
+        CleanupClosedWindows();
 
         string effectiveLeft = !string.IsNullOrWhiteSpace(leftPath)
             ? leftPath
@@ -77,25 +115,33 @@ internal sealed class SplitManager : IDisposable
         string effectiveRight = !string.IsNullOrWhiteSpace(rightPath)
             ? rightPath
             : ResolveRightPanePath(effectiveLeft);
+        bool splitMode = startInSplit ?? _settings.DefaultStartInSplitMode;
 
-        if (_dualPaneForm is null || _dualPaneForm.IsDisposed)
+        // Cascade position slightly when multiple windows are open
+        if (bounds is null && _windows.Count > 0)
         {
-            _dualPaneForm = new DualPaneExplorerForm(effectiveLeft, effectiveRight, bounds);
-            _dualPaneForm.FormClosed += (_, _) => StateChanged?.Invoke();
-            _dualPaneForm.Show();
-            _dualPaneForm.Activate();
-        }
-        else
-        {
-            if (bounds is { Width: > 400, Height: > 300 } b)
+            DualPaneExplorerForm last = _windows[^1];
+            if (!last.IsDisposed && last.WindowState == FormWindowState.Normal)
             {
-                _dualPaneForm.WindowState = FormWindowState.Normal;
-                _dualPaneForm.Bounds = b;
+                bounds = new Rectangle(
+                    last.Left + 32,
+                    last.Top + 32,
+                    last.Width,
+                    last.Height);
             }
-
-            _dualPaneForm.OpenOrFocusFolder(effectiveLeft, effectiveRight, ensureSplitOn: true);
         }
 
+        DualPaneExplorerForm form = new(effectiveLeft, effectiveRight, bounds, splitMode);
+        form.FormClosed += (_, _) =>
+        {
+            _windows.Remove(form);
+            StateChanged?.Invoke();
+        };
+
+        _windows.Add(form);
+        form.Show();
+        form.Activate();
+        NativeMethods.SetForegroundWindow(form.Handle);
         StateChanged?.Invoke();
     }
 
@@ -106,18 +152,14 @@ internal sealed class SplitManager : IDisposable
             return;
         }
 
-        // If already focused inside our single-window DualPaneExplorerForm, toggle its right pane
-        if (_dualPaneForm is not null &&
-            !_dualPaneForm.IsDisposed &&
-            _dualPaneForm.IsHandleCreated &&
-            (hwnd == _dualPaneForm.Handle || NativeMethods.IsChild(_dualPaneForm.Handle, hwnd)))
+        DualPaneExplorerForm? owned = FindOwnedWindow(hwnd);
+        if (owned is not null)
         {
-            _dualPaneForm.ToggleDualPaneSplit();
+            owned.ToggleDualPaneSplit();
             StateChanged?.Invoke();
             return;
         }
 
-        // Triggered from a native Windows File Explorer (CabinetWClass) window
         if (ExplorerDetector.IsExplorerWindow(hwnd))
         {
             string leftPath = ExplorerDetector.GetActiveFolderPath(hwnd) ?? ExplorerDetector.HomeShellGuid;
@@ -128,21 +170,57 @@ internal sealed class SplitManager : IDisposable
                 ? new Rectangle(vis.Left, vis.Top, Math.Max(1100, vis.Width), Math.Max(680, vis.Height))
                 : null;
 
-            OpenDualPaneWindow(leftPath, rightPath, targetBounds);
+            OpenNewWindow(leftPath, rightPath, targetBounds, startInSplit: true);
             return;
         }
 
-        OpenDualPaneWindow();
+        OpenNewWindow();
     }
 
     public void UnpairAll(bool closeSecondary = false)
     {
-        if (_dualPaneForm is not null && !_dualPaneForm.IsDisposed)
+        foreach (DualPaneExplorerForm form in _windows.ToArray())
         {
-            _dualPaneForm.Close();
-            _dualPaneForm.Dispose();
-            _dualPaneForm = null;
-            StateChanged?.Invoke();
+            if (!form.IsDisposed)
+            {
+                form.Close();
+                form.Dispose();
+            }
+        }
+
+        _windows.Clear();
+        StateChanged?.Invoke();
+    }
+
+    private DualPaneExplorerForm? FindOwnedWindow(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        CleanupClosedWindows();
+
+        for (int i = 0; i < _windows.Count; i++)
+        {
+            DualPaneExplorerForm form = _windows[i];
+            if (form.IsHandleCreated && (hwnd == form.Handle || NativeMethods.IsChild(form.Handle, hwnd)))
+            {
+                return form;
+            }
+        }
+
+        return null;
+    }
+
+    private void CleanupClosedWindows()
+    {
+        for (int i = _windows.Count - 1; i >= 0; i--)
+        {
+            if (_windows[i].IsDisposed)
+            {
+                _windows.RemoveAt(i);
+            }
         }
     }
 
@@ -181,6 +259,38 @@ internal sealed class SplitManager : IDisposable
         {
             _hookHandles.Add(handle);
         }
+    }
+
+    private IntPtr OnLowLevelKeyboard(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 &&
+            _settings.ReplaceDefaultExplorer &&
+            !_disposed &&
+            (wParam == (IntPtr)NativeMethods.WM_KEYDOWN || wParam == (IntPtr)NativeMethods.WM_SYSKEYDOWN))
+        {
+            NativeMethods.KBDLLHOOKSTRUCT hookInfo = Marshal.PtrToStructure<NativeMethods.KBDLLHOOKSTRUCT>(lParam);
+            if (hookInfo.vkCode == NativeMethods.VK_E)
+            {
+                bool winPressed = (NativeMethods.GetAsyncKeyState(NativeMethods.VK_LWIN) & 0x8000) != 0 ||
+                                  (NativeMethods.GetAsyncKeyState(NativeMethods.VK_RWIN) & 0x8000) != 0;
+
+                if (winPressed)
+                {
+                    if (_uiSyncContext is not null)
+                    {
+                        _uiSyncContext.Post(_ => OpenNewWindow(), null);
+                    }
+                    else
+                    {
+                        OpenNewWindow();
+                    }
+
+                    return new IntPtr(1);
+                }
+            }
+        }
+
+        return NativeMethods.CallNextHookEx(_keyboardHookHandle, nCode, wParam, lParam);
     }
 
     private void OnWinEvent(
@@ -266,7 +376,7 @@ internal sealed class SplitManager : IDisposable
         try
         {
             string? capturedPath = ExplorerDetector.GetActiveFolderPath(explorerHwnd);
-            int[] retryDelays = [60, 120, 200];
+            int[] retryDelays = [50, 100, 180];
 
             for (int i = 0; i < retryDelays.Length && string.IsNullOrWhiteSpace(capturedPath); i++)
             {
@@ -284,7 +394,7 @@ internal sealed class SplitManager : IDisposable
                 NativeMethods.PostMessage(explorerHwnd, NativeMethods.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
             }
 
-            OpenDualPaneWindow(capturedPath ?? ExplorerDetector.HomeShellGuid);
+            OpenNewWindow(capturedPath ?? ExplorerDetector.HomeShellGuid);
         }
         finally
         {
@@ -300,6 +410,13 @@ internal sealed class SplitManager : IDisposable
         }
 
         _disposed = true;
+
+        if (_keyboardHookHandle != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWindowsHookEx(_keyboardHookHandle);
+            _keyboardHookHandle = IntPtr.Zero;
+        }
+
         UnpairAll();
 
         foreach (IntPtr hook in _hookHandles)

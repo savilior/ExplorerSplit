@@ -1,3 +1,4 @@
+using System.IO.Pipes;
 using ExplorerSplit.Configuration;
 using ExplorerSplit.Core;
 using ExplorerSplit.Interop;
@@ -6,6 +7,7 @@ namespace ExplorerSplit.UI;
 
 internal sealed class TrayApplicationContext : ApplicationContext
 {
+    public const string IpcPipeName = "ExplorerSplit_WindowIPC";
     private const int HotkeyId = 1;
 
     private readonly AppSettings _settings;
@@ -15,9 +17,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly NotifyIcon _notifyIcon;
     private readonly Icon _trayIcon;
     private readonly System.Windows.Forms.Timer _overlayGuardTimer;
+    private readonly SynchronizationContext? _uiSyncContext;
+    private readonly CancellationTokenSource _ipcCts = new();
 
-    private readonly ToolStripMenuItem _toggleSplitItem;
+    private readonly ToolStripMenuItem _newWindowItem;
     private readonly ToolStripMenuItem _replaceExplorerItem;
+    private readonly ToolStripMenuItem _defaultSplitModeItem;
     private readonly ToolStripMenuItem _titleBarButtonItem;
     private readonly ToolStripMenuItem _hotkeyItem;
     private readonly ToolStripMenuItem _sameAsLeftItem;
@@ -32,6 +37,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     public TrayApplicationContext(string? startupFolder = null)
     {
+        _uiSyncContext = SynchronizationContext.Current;
         _settings = AppSettings.Load();
         _splitManager = new SplitManager(_settings);
         _overlayButton = new TitleBarOverlayButton();
@@ -44,8 +50,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _overlayButton.SplitToggleRequested += OnOverlaySplitRequested;
         _hotkeyWindow.HotkeyPressed += OnHotkeyPressed;
 
-        _toggleSplitItem = new ToolStripMenuItem("Open Dual-Pane Explorer", null, (_, _) => TriggerToggleForActiveOrRecentExplorer());
+        _newWindowItem = new ToolStripMenuItem("New ExplorerSplit Window", null, (_, _) => _splitManager.OpenNewWindow());
         _replaceExplorerItem = new ToolStripMenuItem("Replace Default File Explorer", null, OnToggleReplaceDefaultExplorer);
+        _defaultSplitModeItem = new ToolStripMenuItem("Start in Split Mode by Default", null, OnToggleDefaultSplitMode);
         _titleBarButtonItem = new ToolStripMenuItem("Enable Title Bar Toggle Button", null, OnToggleTitleBarButton);
         _hotkeyItem = new ToolStripMenuItem(string.Empty, null, OnConfigureHotkey);
 
@@ -57,14 +64,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
         rightPaneMenu.DropDownItems.AddRange([_sameAsLeftItem, _homeItem, _customPathItem]);
 
         _startupItem = new ToolStripMenuItem("Run at Windows Startup", null, OnToggleStartup);
-        _unpairAllItem = new ToolStripMenuItem("Close All Split Views", null, (_, _) => _splitManager.UnpairAll(closeSecondary: false));
+        _unpairAllItem = new ToolStripMenuItem("Close All Windows", null, (_, _) => _splitManager.UnpairAll(closeSecondary: false));
         ToolStripMenuItem exitItem = new("Exit", null, (_, _) => ExitApplication());
 
         ContextMenuStrip menu = new();
         menu.Items.AddRange([
-            _toggleSplitItem,
+            _newWindowItem,
             new ToolStripSeparator(),
             _replaceExplorerItem,
+            _defaultSplitModeItem,
             _titleBarButtonItem,
             _hotkeyItem,
             rightPaneMenu,
@@ -78,20 +86,22 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _notifyIcon = new NotifyIcon
         {
             Icon = _trayIcon,
-            Text = "ExplorerSplit — Side-by-Side File Explorer",
+            Text = "ExplorerSplit — File Explorer",
             ContextMenuStrip = menu,
             Visible = true
         };
-        _notifyIcon.DoubleClick += (_, _) => TriggerToggleForActiveOrRecentExplorer();
+        _notifyIcon.DoubleClick += (_, _) => _splitManager.OpenNewWindow();
 
         _overlayGuardTimer = new System.Windows.Forms.Timer { Interval = 200 };
         _overlayGuardTimer.Tick += (_, _) => RefreshOverlayAndHotkey();
         _overlayGuardTimer.Start();
 
+        ExplorerReplacementManager.SetEnabled(_settings.ReplaceDefaultExplorer);
+
         SyncMenuState();
         RefreshOverlayAndHotkey();
+        StartIpcServer();
 
-        // Open the single-window Dual-Pane Explorer on startup
         string? initialFolder = startupFolder;
         if (string.IsNullOrWhiteSpace(initialFolder))
         {
@@ -102,11 +112,53 @@ internal sealed class TrayApplicationContext : ApplicationContext
             }
         }
 
-        _splitManager.OpenDualPaneWindow(initialFolder);
+        _splitManager.OpenNewWindow(initialFolder);
         if (_settings.ReplaceDefaultExplorer)
         {
             _splitManager.InterceptExistingExplorerWindowsIfEnabled();
         }
+    }
+
+    private void StartIpcServer()
+    {
+        _ = Task.Run(async () =>
+        {
+            while (!_ipcCts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    using NamedPipeServerStream server = new(
+                        IpcPipeName,
+                        PipeDirection.In,
+                        NamedPipeServerStream.MaxAllowedServerInstances,
+                        PipeTransmissionMode.Byte,
+                        PipeOptions.Asynchronous);
+
+                    await server.WaitForConnectionAsync(_ipcCts.Token);
+                    using StreamReader reader = new(server);
+                    string? folderArg = await reader.ReadLineAsync(_ipcCts.Token);
+
+                    if (_uiSyncContext is not null)
+                    {
+                        _uiSyncContext.Post(_ =>
+                        {
+                            if (!_disposed)
+                            {
+                                _splitManager.OpenNewWindow(string.IsNullOrWhiteSpace(folderArg) ? null : folderArg);
+                            }
+                        }, null);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch
+                {
+                    await Task.Delay(100, _ipcCts.Token).ConfigureAwait(false);
+                }
+            }
+        }, _ipcCts.Token);
     }
 
     private void OnForegroundWindowChanged(IntPtr hwnd)
@@ -209,36 +261,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private void TriggerToggleForActiveOrRecentExplorer()
-    {
-        IntPtr target = NativeMethods.GetForegroundWindow();
-        if (!ExplorerDetector.IsExplorerWindow(target))
-        {
-            if (ExplorerDetector.IsExplorerWindow(_lastExplorerHwnd) &&
-                NativeMethods.IsWindowVisible(_lastExplorerHwnd))
-            {
-                target = _lastExplorerHwnd;
-            }
-            else
-            {
-                target = ExplorerDetector.GetAllExplorerWindows().FirstOrDefault();
-            }
-        }
-
-        if (target != IntPtr.Zero)
-        {
-            _ = _splitManager.ToggleSplitAsync(target);
-        }
-        else
-        {
-            _splitManager.OpenDualPaneWindow();
-        }
-    }
-
     private void OnToggleReplaceDefaultExplorer(object? sender, EventArgs e)
     {
         _settings.ReplaceDefaultExplorer = !_settings.ReplaceDefaultExplorer;
         _settings.Save();
+
+        ExplorerReplacementManager.SetEnabled(_settings.ReplaceDefaultExplorer);
+        _splitManager.UpdateWinEHook();
 
         if (_settings.ReplaceDefaultExplorer)
         {
@@ -248,6 +277,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         SyncMenuState();
         RefreshOverlayAndHotkey();
+    }
+
+    private void OnToggleDefaultSplitMode(object? sender, EventArgs e)
+    {
+        _settings.DefaultStartInSplitMode = !_settings.DefaultStartInSplitMode;
+        _settings.Save();
+        SyncMenuState();
     }
 
     private void OnToggleTitleBarButton(object? sender, EventArgs e)
@@ -307,6 +343,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private void SyncMenuState()
     {
         _replaceExplorerItem.Checked = _settings.ReplaceDefaultExplorer;
+        _defaultSplitModeItem.Checked = _settings.DefaultStartInSplitMode;
         _titleBarButtonItem.Checked = _settings.ShowTitleBarButton;
         _hotkeyItem.Text = $"Configure Hotkey ({_settings.FormatHotkey()})...";
 
@@ -319,11 +356,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _startupItem.Checked = StartupManager.IsEnabled();
 
-        int pairCount = _splitManager.ActivePairCount;
-        _unpairAllItem.Enabled = pairCount > 0;
-        _unpairAllItem.Text = pairCount > 0 ? $"Close All Split Views ({pairCount})" : "Close All Split Views";
-
-        _toggleSplitItem.Enabled = true;
+        int winCount = _splitManager.ActivePairCount;
+        _unpairAllItem.Enabled = winCount > 0;
+        _unpairAllItem.Text = winCount > 0 ? $"Close All Windows ({winCount})" : "Close All Windows";
     }
 
     private void ExitApplication()
@@ -344,6 +379,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         if (disposing)
         {
+            _ipcCts.Cancel();
+            _ipcCts.Dispose();
+
             _overlayGuardTimer.Stop();
             _overlayGuardTimer.Dispose();
 
