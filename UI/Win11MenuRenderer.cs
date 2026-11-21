@@ -143,6 +143,18 @@ internal sealed class Win11MenuRenderer : ToolStripProfessionalRenderer
     protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
     {
         e.TextColor = e.Item.Enabled ? _textColor : _disabledTextColor;
+
+        if (e.Item is ToolStripMenuItem && e.Item.Owner is ToolStripDropDownMenu)
+        {
+            // WinForms lays menu text out from the top of the padded content area, which leaves it
+            // a few pixels above the row's middle. Check marks, radio dots and submenu arrows are
+            // drawn at the row's vertical center, so center the text on the full row height too.
+            Rectangle r = e.TextRectangle;
+            e.TextRectangle = new Rectangle(r.X, 0, r.Width, e.Item.Height);
+            e.TextFormat = (e.TextFormat & ~(TextFormatFlags.Top | TextFormatFlags.Bottom)) |
+                           TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine;
+        }
+
         base.OnRenderItemText(e);
     }
 

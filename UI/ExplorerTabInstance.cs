@@ -291,6 +291,163 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         _browser?.BrowseToIDList(IntPtr.Zero, sbspFlag);
     }
 
+    /// <summary>True when the current folder has a parent to go up to (used for the [..] row).</summary>
+    public bool CanNavigateUp =>
+        !string.IsNullOrWhiteSpace(ParsingPath) &&
+        !string.Equals(ParsingPath, ExplorerDetector.HomeShellGuid, StringComparison.OrdinalIgnoreCase) &&
+        !ParsingPath.StartsWith("search-ms:", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The view index of the item with keyboard focus, or -1.</summary>
+    public int GetFocusedItemIndex()
+    {
+        if (_browser is null || _disposed)
+        {
+            return -1;
+        }
+
+        Guid iid = ShellBrowserInterop.IidIFolderView2;
+        if (_browser.GetCurrentView(ref iid, out object? fvObj) != 0 ||
+            fvObj is not ShellBrowserInterop.IFolderView2 folderView2)
+        {
+            return -1;
+        }
+
+        try
+        {
+            return folderView2.GetFocusedItem(out int index) == 0 ? index : -1;
+        }
+        catch
+        {
+            return -1;
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(folderView2);
+        }
+    }
+
+    private const uint SvsiDeselect = 0x0000;
+    private const uint SvsiSelect = 0x0001;
+    private const uint SvsiDeselectOthers = 0x0004;
+    private const uint SvsiEnsureVisible = 0x0008;
+    private const uint SvsiFocused = 0x0010;
+
+    /// <summary>
+    /// Total Commander Space / Insert: toggles the selection of the item under the cursor and
+    /// moves the cursor to the next item (in the view's display order) without changing other marks.
+    /// </summary>
+    public void ToggleFocusedSelectionAndAdvance()
+    {
+        WithFolderView2(folderView2 =>
+        {
+            if (folderView2.GetFocusedItem(out int focused) != 0 || focused < 0)
+            {
+                // No cursor yet: put it on the first item
+                if (folderView2.GetVisibleItem(-1, false, out int first) == 0 && first >= 0)
+                {
+                    folderView2.SelectItem(first, SvsiFocused | SvsiEnsureVisible | (IsItemSelected(folderView2, first) ? SvsiSelect : 0));
+                }
+
+                return;
+            }
+
+            folderView2.SelectItem(focused, IsItemSelected(folderView2, focused) ? SvsiDeselect : SvsiSelect);
+
+            if (folderView2.GetVisibleItem(focused, false, out int next) == 0 && next >= 0 && next != focused)
+            {
+                uint keep = IsItemSelected(folderView2, next) ? SvsiSelect : 0;
+                folderView2.SelectItem(next, keep | SvsiFocused | SvsiEnsureVisible);
+            }
+            else
+            {
+                // Last item: keep the cursor on it (re-assert focus after the toggle)
+                uint keep = IsItemSelected(folderView2, focused) ? SvsiSelect : 0;
+                folderView2.SelectItem(focused, keep | SvsiFocused | SvsiEnsureVisible);
+            }
+
+            _cachedSelectedCount = -1;
+        });
+    }
+
+    /// <summary>
+    /// Moves the cursor to the first or last item. With nothing marked the item is also selected
+    /// (like pressing Home/End); with items marked only the cursor moves so the marks are kept.
+    /// </summary>
+    public void FocusEdgeItem(bool last)
+    {
+        WithFolderView2(folderView2 =>
+        {
+            if (folderView2.GetVisibleItem(-1, last, out int target) != 0 || target < 0)
+            {
+                return;
+            }
+
+            bool hasMarks = folderView2.ItemCount(ShellBrowserInterop.SVGIO_SELECTION, out int selCount) == 0 && selCount > 0;
+            uint flags = hasMarks
+                ? (IsItemSelected(folderView2, target) ? SvsiSelect : 0) | SvsiFocused | SvsiEnsureVisible
+                : SvsiSelect | SvsiDeselectOthers | SvsiFocused | SvsiEnsureVisible;
+            folderView2.SelectItem(target, flags);
+            _cachedSelectedCount = -1;
+        });
+    }
+
+    private void WithFolderView2(Action<ShellBrowserInterop.IFolderView2> action)
+    {
+        if (_browser is null || _disposed)
+        {
+            return;
+        }
+
+        Guid iid = ShellBrowserInterop.IidIFolderView2;
+        if (_browser.GetCurrentView(ref iid, out object? fvObj) != 0 ||
+            fvObj is not ShellBrowserInterop.IFolderView2 folderView2)
+        {
+            return;
+        }
+
+        try
+        {
+            action(folderView2);
+        }
+        catch
+        {
+            // Some virtual views do not support programmatic selection
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(folderView2);
+        }
+    }
+
+    /// <summary>Number of selected items in the view.</summary>
+    public int GetSelectedItemCount()
+    {
+        if (_browser is null || _disposed)
+        {
+            return 0;
+        }
+
+        Guid iid = ShellBrowserInterop.IidIFolderView2;
+        if (_browser.GetCurrentView(ref iid, out object? fvObj) != 0 ||
+            fvObj is not ShellBrowserInterop.IFolderView2 folderView2)
+        {
+            return 0;
+        }
+
+        try
+        {
+            return folderView2.ItemCount(ShellBrowserInterop.SVGIO_SELECTION, out int count) == 0 ? count : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(folderView2);
+        }
+    }
+
     public void RefreshView()
     {
         if (_browser is null || _disposed)

@@ -8,7 +8,7 @@ using Microsoft.Win32;
 
 namespace Explorer2.UI;
 
-internal sealed class DualPaneExplorerForm : Form, IMessageFilter
+internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 {
     private readonly record struct BreadcrumbSegment(
         string Label,
@@ -35,6 +35,7 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
     private readonly TextBox _addressTextBox;
     private readonly TextBox _searchTextBox;
     private readonly Panel _statusBarPanel;
+    private readonly FunctionKeyBar _functionKeyBar;
     private readonly System.Windows.Forms.Timer _statusTimer;
 
     private readonly ToolTip _toolTip;
@@ -454,6 +455,14 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         };
         _statusBarPanel.MouseDown += OnStatusBarMouseDown;
 
+        // Total Commander style F3..F8 bar, shown above the status bar in split mode
+        _functionKeyBar = new FunctionKeyBar(_isDarkMode) { Visible = false };
+        _functionKeyBar.FunctionKeyClicked += key =>
+        {
+            RunCommanderFunctionKey(key, Keys.None);
+            _selectedPane?.ActiveTab?.FocusFileListView();
+        };
+
         // =====================================================================
         // CENTER: Left Source Tree Pane | Nested Dual File Panes (tabs are on the top title bar!)
         // =====================================================================
@@ -506,6 +515,11 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         _leftFilesPane.LastTabCloseRequested += _ => OnLeftPaneLastTabClosing();
         _rightFilesPane.LastTabCloseRequested += _ => OnRightPaneLastTabClosing();
 
+        _leftFilesPane.ParentRowActivated += GoUpFromParentRow;
+        _rightFilesPane.ParentRowActivated += GoUpFromParentRow;
+        _leftFilesPane.ParentRowClicked += OnParentRowClicked;
+        _rightFilesPane.ParentRowClicked += OnParentRowClicked;
+
         _previewPane = new PreviewPaneControl(_isDarkMode);
 
         _filesSplit.Panel1.Controls.Add(_leftFilesPane);
@@ -514,6 +528,7 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
 
         Controls.Add(_mainSplit);
         Controls.Add(_previewPane);
+        Controls.Add(_functionKeyBar);
         Controls.Add(_statusBarPanel);
         Controls.Add(commandBottomBorder);
         Controls.Add(commandBarRow);
@@ -535,6 +550,7 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         _leftFilesPane.AddNewTab(startLeft, activate: true);
         _rightFilesPane.AddNewTab(startRight, activate: true);
         _filesSplit.Panel2Collapsed = !_isSplitEnabled;
+        ApplyCommanderMode();
 
         _statusTimer = new System.Windows.Forms.Timer { Interval = 250 };
         _statusTimer.Tick += (_, _) => RefreshStatusInfo();
@@ -1379,6 +1395,7 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
             SetSelectedPane(_leftFilesPane);
         }
 
+        ApplyCommanderMode();
         SyncAllPaneViewRects();
         _titleTabBar.Invalidate();
         Invalidate(true);
@@ -2747,6 +2764,8 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
 
         if (m.Msg is NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN or NativeMethods.WM_MBUTTONDOWN)
         {
+            ClearParentRowCursorsForClick(m.HWnd);
+
             if (_isEditingAddress &&
                 m.HWnd != _addressTextBox.Handle &&
                 !NativeMethods.IsChild(_breadcrumbView.Parent?.Handle ?? IntPtr.Zero, m.HWnd))
@@ -2777,6 +2796,11 @@ internal sealed class DualPaneExplorerForm : Form, IMessageFilter
         {
             Keys keyCode = (Keys)m.WParam.ToInt32() & Keys.KeyCode;
             Keys modifiers = Control.ModifierKeys;
+
+            if (_isSplitEnabled && !IsTextEditControlFocused(m.HWnd) && HandleCommanderKey(m.HWnd, keyCode, modifiers))
+            {
+                return true;
+            }
 
             if (modifiers == Keys.Control && keyCode == Keys.T)
             {
