@@ -25,7 +25,10 @@ internal sealed partial class DualPaneExplorerForm
     /// </summary>
     private void OnActiveTabNavigated(TabbedExplorerPane pane, ExplorerTabInstance tab)
     {
-        if (_isSplitEnabled && !tab.LastNavigationRestoresSelection)
+        // Not for search results, and not while the user is typing in the search / address box:
+        // putting the cursor on an item would pull keyboard focus out of the text box.
+        if (_isSplitEnabled && !tab.LastNavigationRestoresSelection && !tab.IsShowingSearch &&
+            !IsTextEditControlFocused(NativeMethods.GetFocus()))
         {
             tab.SelectFirstItemWhenReady();
         }
