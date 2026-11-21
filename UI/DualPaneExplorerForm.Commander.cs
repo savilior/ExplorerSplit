@@ -180,6 +180,25 @@ internal sealed partial class DualPaneExplorerForm
             return true;
         }
 
+        // Total Commander: once items are marked, cursor keys move only the cursor and keep the
+        // marks (the shell view would otherwise select the item under the cursor and drop the rest).
+        if (modifiers == Keys.None &&
+            keyCode is Keys.Up or Keys.Down or Keys.PageUp or Keys.PageDown or Keys.Home or Keys.End &&
+            tab.HasCommanderMarks)
+        {
+            int steps = keyCode switch
+            {
+                Keys.Up => -1,
+                Keys.Down => 1,
+                Keys.PageUp => -tab.EstimatedPageRows,
+                Keys.PageDown => tab.EstimatedPageRows,
+                Keys.Home => int.MinValue,
+                _ => int.MaxValue
+            };
+            tab.MoveCursorKeepingMarks(steps);
+            return true;
+        }
+
         return false;
     }
 

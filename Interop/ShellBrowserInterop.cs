@@ -613,4 +613,88 @@ internal static class ShellBrowserInterop
         IntPtr pidl,
         ref Guid riid,
         [MarshalAs(UnmanagedType.Interface)] out IShellItem? ppv);
+
+    [DllImport("shell32.dll", PreserveSig = true)]
+    internal static extern int SHCreateShellItemArrayFromShellItem(
+        [MarshalAs(UnmanagedType.Interface)] IShellItem psi,
+        ref Guid riid,
+        [MarshalAs(UnmanagedType.Interface)] out IShellItemArray? ppv);
+
+    // In-place search: a search folder built with ISearchFolderItemFactory is a normal shell item
+    // the hosted ExplorerBrowser can show. (Browsing to a "search-ms:" URI instead hands the search
+    // to a new native File Explorer window.)
+    internal static readonly Guid ClsidSearchFolderItemFactory = new("14010E02-BBBD-41F0-88E3-EDA371216584");
+    internal static readonly Guid ClsidConditionFactory = new("E03E85B0-7BE3-4000-BA98-6C13DE9FA486");
+    internal const int COP_VALUE_CONTAINS = 9;
+
+    // Vtable order matches shobjidl_core.h exactly.
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("A0FFBC28-5482-4366-BE27-3E81E78E06C2")]
+    internal interface ISearchFolderItemFactory
+    {
+        [PreserveSig]
+        int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string pszDisplayName);
+
+        [PreserveSig]
+        int SetFolderTypeID(Guid ftid);
+
+        [PreserveSig]
+        int SetFolderLogicalViewMode(int flvm);
+
+        [PreserveSig]
+        int SetIconSize(int iIconSize);
+
+        [PreserveSig]
+        int SetVisibleColumns(uint cVisibleColumns, IntPtr rgKey);
+
+        [PreserveSig]
+        int SetSortColumns(uint cSortColumns, IntPtr rgSortColumns);
+
+        [PreserveSig]
+        int SetGroupColumn(IntPtr keyGroup);
+
+        [PreserveSig]
+        int SetStacks(uint cStackKeys, IntPtr rgStackKeys);
+
+        [PreserveSig]
+        int SetScope([MarshalAs(UnmanagedType.Interface)] IShellItemArray psiaScope);
+
+        [PreserveSig]
+        int SetCondition(IntPtr pCondition);
+
+        [PreserveSig]
+        int GetShellItem(ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out IShellItem? ppv);
+
+        [PreserveSig]
+        int GetIDList(out IntPtr ppidl);
+    }
+
+    // Vtable order matches structuredquery.h exactly (only the methods up to MakeLeaf are called).
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("A5EFE073-B16F-474F-9F3E-9F8B497A3E08")]
+    internal interface IConditionFactory
+    {
+        [PreserveSig]
+        int MakeNot(IntPtr pcSub, [MarshalAs(UnmanagedType.Bool)] bool fSimplify, out IntPtr ppcResult);
+
+        [PreserveSig]
+        int MakeAndOr(int ct, IntPtr peuSubs, [MarshalAs(UnmanagedType.Bool)] bool fSimplify, out IntPtr ppcResult);
+
+        [PreserveSig]
+        int MakeLeaf(
+            [MarshalAs(UnmanagedType.LPWStr)] string pszPropertyName,
+            int cop,
+            [MarshalAs(UnmanagedType.LPWStr)] string? pszValueType,
+            IntPtr ppropvar,
+            IntPtr pPropertyNameTerm,
+            IntPtr pOperationTerm,
+            IntPtr pValueTerm,
+            [MarshalAs(UnmanagedType.Bool)] bool fExpand,
+            out IntPtr ppcResult);
+
+        [PreserveSig]
+        int Resolve(IntPtr pc, int sqro, IntPtr pstReferenceTime, out IntPtr ppcResolved);
+    }
 }

@@ -270,20 +270,162 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
         if (string.IsNullOrWhiteSpace(query))
         {
-            return NavigateToPath(_lastNonSearchPath);
+            return !IsShowingSearch || NavigateToPath(_lastNonSearchPath);
+        }
+
+        if (_browser is null)
+        {
+            return false;
         }
 
         string baseFolder = !string.IsNullOrWhiteSpace(_lastNonSearchPath)
             ? _lastNonSearchPath
             : DisplayPath;
 
-        string folderName = GetShortFolderTitle(baseFolder);
-        string searchUri =
-            $"search-ms:displayname={Uri.EscapeDataString($"Search Results in {folderName}")}" +
-            $"&crumb=System.Generic.String%3A{Uri.EscapeDataString(query.Trim())}" +
-            $"&crumb=location:{Uri.EscapeDataString(baseFolder)}";
+        ShellBrowserInterop.IShellItem? searchItem = CreateSearchFolderItem(baseFolder, query.Trim());
+        if (searchItem is null)
+        {
+            return false;
+        }
 
-        return NavigateToPath(searchUri);
+        try
+        {
+            SearchQuery = query.Trim();
+            _searchNavigationPending = true;
+            if (_browser.BrowseToObject(searchItem, ShellBrowserInterop.SBSP_ABSOLUTE) == 0)
+            {
+                return true;
+            }
+
+            _searchNavigationPending = false;
+            return false;
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(searchItem);
+        }
+    }
+
+    /// <summary>
+    /// True while the tab shows search results rather than a folder.
+    /// </summary>
+    public bool IsShowingSearch { get; private set; }
+
+    /// <summary>The last query searched in this tab (shown in the search box while results are up).</summary>
+    public string? SearchQuery { get; private set; }
+
+    /// <summary>
+    /// The folder the tab is in: its current location, or while showing search results the folder
+    /// that was searched. Use this to open the "same place" in another tab or pane.
+    /// </summary>
+    public string FolderPath => IsShowingSearch && !string.IsNullOrWhiteSpace(_lastNonSearchPath)
+        ? _lastNonSearchPath
+        : ParsingPath;
+
+    private bool _searchNavigationPending;
+    private readonly HashSet<string> _searchResultParsingNames = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Builds a search folder (file names containing <paramref name="query"/>, searched recursively
+    /// under <paramref name="baseFolder"/>) that the hosted browser shows in place.
+    /// </summary>
+    private ShellBrowserInterop.IShellItem? CreateSearchFolderItem(string baseFolder, string query)
+    {
+        ShellBrowserInterop.ISearchFolderItemFactory? factory = null;
+        ShellBrowserInterop.IConditionFactory? conditionFactory = null;
+        ShellBrowserInterop.IShellItem? scopeItem = null;
+        ShellBrowserInterop.IShellItemArray? scope = null;
+        IntPtr condition = IntPtr.Zero;
+        IntPtr propVariant = IntPtr.Zero;
+        IntPtr queryText = IntPtr.Zero;
+
+        try
+        {
+            Guid iidItem = ShellBrowserInterop.IidIShellItem;
+            if (ShellBrowserInterop.SHCreateItemFromParsingName(baseFolder, IntPtr.Zero, ref iidItem, out scopeItem) != 0 ||
+                scopeItem is null)
+            {
+                return null;
+            }
+
+            Guid iidArray = ShellBrowserInterop.IidIShellItemArray;
+            if (ShellBrowserInterop.SHCreateShellItemArrayFromShellItem(scopeItem, ref iidArray, out scope) != 0 ||
+                scope is null)
+            {
+                return null;
+            }
+
+            Type? conditionFactoryType = Type.GetTypeFromCLSID(ShellBrowserInterop.ClsidConditionFactory);
+            Type? factoryType = Type.GetTypeFromCLSID(ShellBrowserInterop.ClsidSearchFolderItemFactory);
+            if (conditionFactoryType is null || factoryType is null)
+            {
+                return null;
+            }
+
+            conditionFactory = Activator.CreateInstance(conditionFactoryType) as ShellBrowserInterop.IConditionFactory;
+            factory = Activator.CreateInstance(factoryType) as ShellBrowserInterop.ISearchFolderItemFactory;
+            if (conditionFactory is null || factory is null)
+            {
+                return null;
+            }
+
+            // PROPVARIANT { VARTYPE vt = VT_LPWSTR; ...; LPWSTR pwszVal at offset 8 }
+            const short VtLpwstr = 31;
+            propVariant = Marshal.AllocCoTaskMem(24);
+            for (int i = 0; i < 24; i += 4)
+            {
+                Marshal.WriteInt32(propVariant, i, 0);
+            }
+
+            queryText = Marshal.StringToCoTaskMemUni(query);
+            Marshal.WriteInt16(propVariant, 0, VtLpwstr);
+            Marshal.WriteIntPtr(propVariant, 8, queryText);
+
+            if (conditionFactory.MakeLeaf(
+                    "System.ItemNameDisplay",
+                    ShellBrowserInterop.COP_VALUE_CONTAINS,
+                    null,
+                    propVariant,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    false,
+                    out condition) != 0 || condition == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            factory.SetDisplayName($"Search Results in {GetShortFolderTitle(baseFolder)}");
+            factory.SetScope(scope);
+            factory.SetCondition(condition);
+
+            if (factory.GetShellItem(ref iidItem, out ShellBrowserInterop.IShellItem? searchItem) != 0 || searchItem is null)
+            {
+                return null;
+            }
+
+            if (searchItem.GetDisplayName(ShellBrowserInterop.SIGDN_DESKTOPABSOLUTEPARSING, out string? parsingName) == 0 &&
+                !string.IsNullOrWhiteSpace(parsingName))
+            {
+                _searchResultParsingNames.Add(parsingName);
+            }
+
+            return searchItem;
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            if (condition != IntPtr.Zero) Marshal.Release(condition);
+            if (queryText != IntPtr.Zero) Marshal.FreeCoTaskMem(queryText);
+            if (propVariant != IntPtr.Zero) Marshal.FreeCoTaskMem(propVariant);
+            if (scope is not null) Marshal.ReleaseComObject(scope);
+            if (scopeItem is not null) Marshal.ReleaseComObject(scopeItem);
+            if (factory is not null) Marshal.ReleaseComObject(factory);
+            if (conditionFactory is not null) Marshal.ReleaseComObject(conditionFactory);
+        }
     }
 
     public void NavigateRelative(uint sbspFlag)
@@ -350,6 +492,8 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
     /// </summary>
     public void ToggleFocusedSelectionAndAdvance()
     {
+        bool wasMarking = _isMarking;
+        _isMarking = true;
         WithFolderView2(folderView2 =>
         {
             if (folderView2.GetFocusedItem(out int focused) != 0 || focused < 0)
@@ -363,7 +507,12 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
                 return;
             }
 
-            folderView2.SelectItem(focused, IsItemSelected(folderView2, focused) ? SvsiDeselect : SvsiSelect);
+            // Before marking starts, a lone selected item under the cursor is just the shell's
+            // "selection follows cursor", not a mark: the first Space marks it instead of unmarking it.
+            bool focusedSelected = IsItemSelected(folderView2, focused);
+            bool cursorOnlySelection = !wasMarking && focusedSelected &&
+                                       folderView2.ItemCount(ShellBrowserInterop.SVGIO_SELECTION, out int selCount) == 0 && selCount == 1;
+            folderView2.SelectItem(focused, focusedSelected && !cursorOnlySelection ? SvsiDeselect : SvsiSelect);
 
             if (folderView2.GetVisibleItem(focused, false, out int next) == 0 && next >= 0 && next != focused)
             {
@@ -379,6 +528,73 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
             _cachedSelectedCount = -1;
         });
+    }
+
+    // Set once items are marked with Space / Insert (Total Commander style); cleared on navigation.
+    private bool _isMarking;
+
+    /// <summary>
+    /// True while Total Commander style marks are active: items were marked with Space / Insert
+    /// and some are still selected. Cursor keys then move the cursor without touching the marks.
+    /// </summary>
+    public bool HasCommanderMarks => _isMarking && GetSelectedItemCount() > 0;
+
+    /// <summary>
+    /// Moves the cursor (focused item) by <paramref name="steps"/> items in display order without
+    /// changing which items are selected. int.MinValue / int.MaxValue go to the first / last item.
+    /// </summary>
+    public void MoveCursorKeepingMarks(int steps)
+    {
+        WithFolderView2(folderView2 =>
+        {
+            int target;
+            if (steps is int.MinValue or int.MaxValue)
+            {
+                if (folderView2.GetVisibleItem(-1, steps == int.MaxValue, out target) != 0 || target < 0)
+                {
+                    return;
+                }
+            }
+            else
+            {
+                if (folderView2.GetFocusedItem(out int focused) != 0 || focused < 0)
+                {
+                    return;
+                }
+
+                target = focused;
+                bool previous = steps < 0;
+                for (int i = 0; i < Math.Abs(steps); i++)
+                {
+                    if (folderView2.GetVisibleItem(target, previous, out int next) != 0 || next < 0 || next == target)
+                    {
+                        break;
+                    }
+
+                    target = next;
+                }
+
+                if (target == focused)
+                {
+                    return;
+                }
+            }
+
+            uint keep = IsItemSelected(folderView2, target) ? SvsiSelect : 0;
+            folderView2.SelectItem(target, keep | SvsiFocused | SvsiEnsureVisible);
+            _cachedSelectedCount = -1;
+        });
+    }
+
+    /// <summary>Rough number of rows visible in the view, for Page Up / Page Down.</summary>
+    public int EstimatedPageRows
+    {
+        get
+        {
+            float scale = HostPanel.DeviceDpi / 96f;
+            int rowHeight = (int)Math.Max(16, (CurrentViewMode == ShellBrowserInterop.FVM_DETAILS ? 22 : 30) * scale);
+            return Math.Max(1, HostPanel.ClientSize.Height / rowHeight - 2);
+        }
     }
 
     /// <summary>
@@ -1322,7 +1538,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         uint attrs = 0;
 
         string iconTarget = path;
-        if (iconTarget.StartsWith("search-ms:", StringComparison.OrdinalIgnoreCase))
+        if (IsShowingSearch || iconTarget.StartsWith("search-ms:", StringComparison.OrdinalIgnoreCase))
         {
             iconTarget = _lastNonSearchPath;
         }
@@ -1429,7 +1645,13 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
                         ? fileSystemPath
                         : ExplorerDetector.HomeShellGuid;
 
-                if (!ParsingPath.StartsWith("search-ms:", StringComparison.OrdinalIgnoreCase))
+                IsShowingSearch = _searchNavigationPending ||
+                                  _searchResultParsingNames.Contains(ParsingPath) ||
+                                  ParsingPath.StartsWith("search-ms:", StringComparison.OrdinalIgnoreCase);
+                _searchNavigationPending = false;
+                _isMarking = false;
+
+                if (!IsShowingSearch)
                 {
                     _lastNonSearchPath = !string.IsNullOrWhiteSpace(fileSystemPath)
                         ? fileSystemPath
@@ -1483,7 +1705,11 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         return 0;
     }
 
-    int ShellBrowserInterop.IExplorerBrowserEvents.OnNavigationFailed(IntPtr pidlFolder) => 0;
+    int ShellBrowserInterop.IExplorerBrowserEvents.OnNavigationFailed(IntPtr pidlFolder)
+    {
+        _searchNavigationPending = false;
+        return 0;
+    }
 
     private async Task DelayedSyncRectAsync()
     {

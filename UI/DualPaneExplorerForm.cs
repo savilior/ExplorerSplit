@@ -278,7 +278,49 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             }
         };
 
+        // Clear (X) button: shown while the box holds a typed query
+        Control searchClearBtn = new DoubleBufferedControl
+        {
+            Size = new Size(22, 26),
+            Dock = DockStyle.Right,
+            Cursor = Cursors.Hand,
+            BackColor = _controlBg,
+            Visible = false
+        };
+        bool clearHovered = false;
+        searchClearBtn.MouseEnter += (_, _) => { clearHovered = true; searchClearBtn.Invalidate(); };
+        searchClearBtn.MouseLeave += (_, _) => { clearHovered = false; searchClearBtn.Invalidate(); };
+        searchClearBtn.Paint += (_, e) =>
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            Rectangle r = searchClearBtn.ClientRectangle;
+            if (clearHovered)
+            {
+                using SolidBrush hover = new(_controlHoverBg);
+                e.Graphics.FillEllipse(hover, r.X + (r.Width - 18) / 2, r.Y + (r.Height - 18) / 2, 18, 18);
+            }
+
+            using Pen pen = new(clearHovered ? _textColor : _mutedTextColor, 1.4f);
+            float cx = r.X + r.Width / 2f;
+            float cy = r.Y + r.Height / 2f;
+            const float h = 4f;
+            e.Graphics.DrawLine(pen, cx - h, cy - h, cx + h, cy + h);
+            e.Graphics.DrawLine(pen, cx - h, cy + h, cx + h, cy - h);
+        };
+        searchClearBtn.Click += (_, _) =>
+        {
+            _isSearchPlaceholderActive = false;
+            _searchTextBox.Text = string.Empty;
+            _searchTextBox.ForeColor = _textColor;
+            _selectedPane?.ActiveTab?.ExecuteSearch(null);
+            _searchTextBox.Focus();
+        };
+        _toolTip.SetToolTip(searchClearBtn, "Clear search (Esc)");
+        _searchTextBox.TextChanged += (_, _) =>
+            searchClearBtn.Visible = !_isSearchPlaceholderActive && _searchTextBox.Text.Length > 0;
+
         searchFrame.Controls.Add(_searchTextBox);
+        searchFrame.Controls.Add(searchClearBtn);
         searchFrame.Controls.Add(searchIconBtn);
         searchOuter.Controls.Add(searchFrame);
 
@@ -1391,7 +1433,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         if (_isSplitEnabled && _rightFilesPane.Tabs.Count == 0)
         {
             // The right pane was closed earlier; reopen it on the left pane's current folder.
-            _rightFilesPane.AddNewTab(_leftFilesPane.ActiveTab?.ParsingPath, activate: true);
+            _rightFilesPane.AddNewTab(_leftFilesPane.ActiveTab?.FolderPath, activate: true);
         }
 
         if (_isSplitEnabled)
@@ -1478,10 +1520,24 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             _breadcrumbView.Invalidate();
         }
 
-        _searchPlaceholder = $"Search {tab.Title}";
-        if (_isSearchPlaceholderActive && !_searchTextBox.Focused)
+        // The search box follows the active tab: its query while it shows results, else the placeholder.
+        _searchPlaceholder = tab.IsShowingSearch ? "Search" : $"Search {tab.Title}";
+        if (!_searchTextBox.Focused)
         {
-            _searchTextBox.Text = _searchPlaceholder;
+            if (tab.IsShowingSearch && !string.IsNullOrEmpty(tab.SearchQuery))
+            {
+                _isSearchPlaceholderActive = false;
+                _searchTextBox.ForeColor = _textColor;
+                _searchTextBox.Text = tab.SearchQuery;
+            }
+            else
+            {
+                _isSearchPlaceholderActive = true;
+                _searchTextBox.ForeColor = _mutedTextColor;
+                _searchTextBox.Text = _searchPlaceholder;
+            }
+
+            _searchTextBox.SelectionStart = 0;
         }
 
         Text = $"{tab.Title} — File Explorer";
@@ -2366,7 +2422,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
     private void SyncInactivePaneToActive()
     {
-        string? activePath = _selectedPane?.ActiveTab?.ParsingPath;
+        string? activePath = _selectedPane?.ActiveTab?.FolderPath;
         if (string.IsNullOrWhiteSpace(activePath))
         {
             return;

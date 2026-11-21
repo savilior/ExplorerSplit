@@ -107,7 +107,7 @@ Closing the last tab of one pane in split mode closes that pane (the other pane'
 | Back / Forward | **Alt+Left** / **Alt+Right** |
 | Up one folder | **Backspace** or **Alt+Up** |
 | Edit the address | **Ctrl+L**, **Alt+D** (and **F4** in normal mode) |
-| Search the current folder | **Ctrl+F** (and **F3** in normal mode) |
+| Search the current folder (file names, results in the same tab) | **Ctrl+F** (and **F3** in normal mode); **Esc** or the **X** clears it |
 | Refresh | **F5** in normal mode |
 | Rename | **F2** |
 | New folder | **Ctrl+Shift+N** |
@@ -120,6 +120,7 @@ Toggle with **Ctrl+Shift+S** (changeable from the tray menu) or the **Split** bu
 | Key | Action |
 |---|---|
 | **Space** / **Insert** | Mark / unmark the item under the cursor and move down |
+| **Up** / **Down** / **PgUp** / **PgDn** / **Home** / **End** | While items are marked, move the cursor and keep the marks |
 | **Num \*** | Invert the selection |
 | **F3** | View the file in the quick viewer (a folder is entered) |
 | **Shift+F3** | Open with the default app |

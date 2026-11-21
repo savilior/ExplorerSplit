@@ -67,6 +67,9 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
 
     private string? _lastEmittedPath;
     private long _lastEmittedTick;
+    private long _lastUserInputTick = long.MinValue / 2;
+    private const int WmKeyDown = 0x0100;
+    private const int WmChar = 0x0102;
 
     public event Action<string>? SourceSelected;
 
@@ -538,7 +541,10 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
     int ShellBrowserInterop.INameSpaceTreeControlEvents.OnSelectionChanged(
         ShellBrowserInterop.IShellItemArray psiaSelection)
     {
-        if (_disposed || psiaSelection is null)
+        // The tree also changes its selection on its own (e.g. selecting the first root, Home, when
+        // it is created or first focused). Only follow selection changes the user caused with the
+        // keyboard or mouse; otherwise a window opened on a folder would jump to Home.
+        if (_disposed || psiaSelection is null || Environment.TickCount64 - _lastUserInputTick > 1000)
         {
             return 0;
         }
@@ -712,6 +718,11 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
 
         protected override void WndProc(ref Message m)
         {
+            if (m.Msg is WmKeyDown or WmChar or (int)WM_LBUTTONDOWN or (int)WM_LBUTTONDBLCLK)
+            {
+                _owner._lastUserInputTick = Environment.TickCount64;
+            }
+
             if (m.Msg is (int)WM_LBUTTONDOWN or (int)WM_LBUTTONDBLCLK)
             {
                 int lParam = m.LParam.ToInt32();

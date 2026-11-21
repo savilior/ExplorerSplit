@@ -56,7 +56,7 @@ internal sealed class TabbedExplorerPane : Panel
     {
         string targetPath = !string.IsNullOrWhiteSpace(initialPath)
             ? initialPath
-            : ActiveTab?.ParsingPath ?? ExplorerDetector.HomeShellGuid;
+            : ActiveTab?.FolderPath ?? ExplorerDetector.HomeShellGuid;
 
         uint viewMode = ActiveTab?.CurrentViewMode ?? ShellBrowserInterop.FVM_DETAILS;
         Color hostBg = _isDarkMode ? Color.FromArgb(25, 25, 25) : Color.White;
