@@ -89,6 +89,9 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
     private bool _isEditingAddress;
     private string _searchPlaceholder = "Search Home";
     private bool _isSearchPlaceholderActive = true;
+    private readonly System.Windows.Forms.Timer _searchTypingTimer;
+    private readonly Control _searchOptionsBtn;
+    private readonly Control _closeSearchBtn;
 
     private TabbedExplorerPane _selectedPane;
     private bool _isSplitEnabled;
@@ -260,19 +263,38 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
                 _searchTextBox.Text = _searchPlaceholder;
             }
         };
+        // Search as you type, like File Explorer: each edit (re)runs the search after a short pause;
+        // emptying the box returns to the folder.
+        _searchTypingTimer = new System.Windows.Forms.Timer { Interval = 450 };
+        _searchTypingTimer.Tick += (_, _) =>
+        {
+            _searchTypingTimer.Stop();
+            RunSearchFromBox();
+        };
+        _searchTextBox.TextChanged += (_, _) =>
+        {
+            if (_searchTextBox.Focused && !_isSearchPlaceholderActive)
+            {
+                _searchTypingTimer.Stop();
+                _searchTypingTimer.Start();
+            }
+        };
         _searchTextBox.KeyDown += (_, e) =>
         {
             if (e.KeyCode == Keys.Enter)
             {
                 e.SuppressKeyPress = true;
                 e.Handled = true;
+                _searchTypingTimer.Stop();
                 RunSearchFromBox();
             }
             else if (e.KeyCode == Keys.Escape)
             {
                 e.SuppressKeyPress = true;
                 e.Handled = true;
+                _searchTypingTimer.Stop();
                 _searchTextBox.Text = string.Empty;
+                _searchTypingTimer.Stop();
                 _selectedPane?.ActiveTab?.ExecuteSearch(null);
                 _selectedPane?.ActiveTab?.HostPanel.Focus();
             }
@@ -311,6 +333,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         {
             _isSearchPlaceholderActive = false;
             _searchTextBox.Text = string.Empty;
+            _searchTypingTimer.Stop();
             _searchTextBox.ForeColor = _textColor;
             _selectedPane?.ActiveTab?.ExecuteSearch(null);
             _searchTextBox.Focus();
@@ -429,6 +452,18 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         Control? moreBtn = null;
         moreBtn = CreateVectorIconButton("See more", 36, 32, DrawMoreDotsIcon, () => ShowMoreMenu(moreBtn!));
 
+        // Shown only while the active tab shows search results (like File Explorer's search mode)
+        _searchOptionsBtn = CreateCommandBarDropdownButton("Search options", 132, DrawSearchMagnifierIcon, ShowSearchOptionsMenu);
+        _searchOptionsBtn.Visible = false;
+        _closeSearchBtn = CreateCommandBarToggleButton(
+            "Close search",
+            112,
+            DrawCloseSearchIcon,
+            () => false,
+            CloseActiveSearch,
+            "Close search and go back to the folder (Esc in the search box)");
+        _closeSearchBtn.Visible = false;
+
         leftCommandFlow.Controls.AddRange([
             newDropdownBtn,
             CreateVerticalCommandSeparator(),
@@ -441,6 +476,8 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             CreateVerticalCommandSeparator(),
             sortDropdownBtn,
             viewDropdownBtn,
+            _searchOptionsBtn,
+            _closeSearchBtn,
             CreateVerticalCommandSeparator(),
             moreBtn
         ]);
@@ -1540,6 +1577,9 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             _searchTextBox.SelectionStart = 0;
         }
 
+        _searchOptionsBtn.Visible = tab.IsShowingSearch;
+        _closeSearchBtn.Visible = tab.IsShowingSearch;
+
         Text = $"{tab.Title} — File Explorer";
         _leftSourceTree.SyncHighlightToPath(tab.DisplayPath);
         _titleTabBar.Invalidate();
@@ -2358,6 +2398,174 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Sync Other Pane to Active Folder", _isDarkMode, (_, _) => SyncInactivePaneToActive()));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Options", _isDarkMode, (_, _) => OpenWindowsFolderOptions()));
+        menu.Show(anchor, new Point(0, anchor.Height + 2));
+    }
+
+    // =====================================================================
+    // Search options (File Explorer's search-mode command bar)
+    // =====================================================================
+    private void CloseActiveSearch()
+    {
+        _searchTypingTimer.Stop();
+        _searchTextBox.Text = string.Empty;
+        _searchTypingTimer.Stop();
+        _selectedPane?.ActiveTab?.ExecuteSearch(null);
+        _selectedPane?.ActiveTab?.FocusFileListView();
+    }
+
+    private static void DrawCloseSearchIcon(Graphics g, Rectangle r, Color c)
+    {
+        using Pen pen = new(c, 1.5f);
+        float cx = r.X + r.Width / 2f;
+        float cy = r.Y + r.Height / 2f;
+        const float h = 5f;
+        g.DrawLine(pen, cx - h, cy - h, cx + h, cy + h);
+        g.DrawLine(pen, cx - h, cy + h, cx + h, cy - h);
+    }
+
+    /// <summary>
+    /// Adds a search filter to the query in the search box, replacing an existing filter on the
+    /// same property (as File Explorer does), and runs the search. With <paramref name="run"/> false
+    /// the text is only inserted for the user to complete (e.g. "name:").
+    /// </summary>
+    private void ApplySearchFilter(string property, string? value, bool run = true)
+    {
+        string current = _isSearchPlaceholderActive ? string.Empty : _searchTextBox.Text;
+        string pattern = $@"(?i)(^|\s){System.Text.RegularExpressions.Regex.Escape(property)}:(""[^""]*""|\S*)";
+        string cleaned = System.Text.RegularExpressions.Regex.Replace(current, pattern, string.Empty).Trim();
+        string token = value is null ? $"{property}:" : $"{property}:{value}";
+        string updated = string.IsNullOrEmpty(cleaned) ? token : $"{cleaned} {token}";
+
+        _isSearchPlaceholderActive = false;
+        _searchTextBox.ForeColor = _textColor;
+        _searchTextBox.Text = updated;
+        _searchTypingTimer.Stop();
+
+        if (run)
+        {
+            RunSearchFromBox();
+        }
+        else
+        {
+            _searchTextBox.Focus();
+            _searchTextBox.SelectionStart = _searchTextBox.Text.Length;
+            _searchTypingTimer.Stop();
+        }
+    }
+
+    private void ShowSearchOptionsMenu(Control anchor)
+    {
+        ExplorerTabInstance? tab = _selectedPane?.ActiveTab;
+        if (tab is null)
+        {
+            return;
+        }
+
+        ContextMenuStrip menu = Win11MenuRenderer.CreateMenu(_isDarkMode, _uiFont);
+
+        // Location
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Current folder", _isDarkMode, (_, _) =>
+        {
+            tab.SearchSubfolders = false;
+            tab.RerunSearch();
+        }, isChecked: !tab.SearchSubfolders));
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("All subfolders", _isDarkMode, (_, _) =>
+        {
+            tab.SearchSubfolders = true;
+            tab.RerunSearch();
+        }, isChecked: tab.SearchSubfolders));
+        menu.Items.Add(new ToolStripSeparator());
+
+        ToolStripMenuItem AddFilterMenu(string label, string property, (string Label, string Value)[] choices)
+        {
+            ToolStripMenuItem parent = Win11MenuRenderer.CreateMenuItem(label, _isDarkMode);
+            foreach ((string choiceLabel, string value) in choices)
+            {
+                parent.DropDownItems.Add(Win11MenuRenderer.CreateMenuItem(
+                    choiceLabel, _isDarkMode, (_, _) => ApplySearchFilter(property, value)));
+            }
+
+            menu.Items.Add(parent);
+            return parent;
+        }
+
+        AddFilterMenu("Date modified", "datemodified",
+        [
+            ("Today", "today"), ("Yesterday", "yesterday"), ("This week", "\"this week\""),
+            ("Last week", "\"last week\""), ("This month", "\"this month\""), ("Last month", "\"last month\""),
+            ("This year", "\"this year\""), ("Last year", "\"last year\"")
+        ]);
+
+        string[] kinds =
+        [
+            "Calendar", "Communication", "Contact", "Document", "Email", "Feed", "Folder", "Game",
+            "Instant Message", "Journal", "Link", "Movie", "Music", "Note", "Picture", "Playlist",
+            "Program", "Recorded TV", "Saved Search", "Task", "Video", "Web History", "Unknown"
+        ];
+        AddFilterMenu("Kind", "kind",
+            kinds.Select(k => (k, k.Contains(' ') ? $"=\"{k.ToLowerInvariant()}\"" : $"={k.ToLowerInvariant()}")).ToArray());
+
+        AddFilterMenu("Size", "size",
+        [
+            ("Empty (0 KB)", "empty"), ("Tiny (0 – 16 KB)", "tiny"), ("Small (16 KB – 1 MB)", "small"),
+            ("Medium (1 – 128 MB)", "medium"), ("Large (128 MB – 1 GB)", "large"),
+            ("Huge (1 – 4 GB)", "huge"), ("Gigantic (> 4 GB)", "gigantic")
+        ]);
+
+        ToolStripMenuItem other = Win11MenuRenderer.CreateMenuItem("Other properties", _isDarkMode);
+        foreach ((string label, string property) in new[] { ("Type", "type"), ("Name", "name"), ("Folder path", "folderpath"), ("Tags", "tags") })
+        {
+            other.DropDownItems.Add(Win11MenuRenderer.CreateMenuItem(
+                label, _isDarkMode, (_, _) => ApplySearchFilter(property, null, run: false)));
+        }
+
+        menu.Items.Add(other);
+        menu.Items.Add(new ToolStripSeparator());
+
+        // Advanced options: File Explorer's own search settings (shared with File Explorer)
+        ToolStripMenuItem advanced = Win11MenuRenderer.CreateMenuItem("Advanced options", _isDarkMode);
+        void AddSetting(string label, bool isOn, Action<bool> set)
+        {
+            advanced.DropDownItems.Add(Win11MenuRenderer.CreateMenuItem(label, _isDarkMode, (_, _) =>
+            {
+                set(!isOn);
+                tab.RerunSearch();
+            }, isChecked: isOn, isCheckBox: true));
+        }
+
+        AddSetting("File contents", SearchPreferences.FileContents, v => SearchPreferences.FileContents = v);
+        AddSetting("System files", SearchPreferences.SystemFiles, v => SearchPreferences.SystemFiles = v);
+        AddSetting("Zipped (compressed) folders", SearchPreferences.ZippedFolders, v => SearchPreferences.ZippedFolders = v);
+        advanced.DropDownItems.Add(new ToolStripSeparator());
+        advanced.DropDownItems.Add(Win11MenuRenderer.CreateMenuItem("Change indexed locations", _isDarkMode, (_, _) =>
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("rundll32.exe", "shell32.dll,Control_RunDLL srchadmin.dll") { UseShellExecute = true });
+            }
+            catch
+            {
+                // Ignore if the indexing options cannot be opened
+            }
+        }));
+        menu.Items.Add(advanced);
+        menu.Items.Add(new ToolStripSeparator());
+
+        // Open file location: go to the selected result's folder and select it
+        List<string> selected = tab.GetSelectedItemPaths();
+        ToolStripMenuItem openLocation = Win11MenuRenderer.CreateMenuItem("Open file location", _isDarkMode, (_, _) =>
+        {
+            string? folder = Path.GetDirectoryName(selected[0]);
+            if (!string.IsNullOrEmpty(folder))
+            {
+                _searchTextBox.Text = string.Empty;
+                tab.NavigateToPath(folder);
+                tab.SelectItemByNameWhenReady(Path.GetFileName(selected[0]));
+            }
+        });
+        openLocation.Enabled = selected.Count == 1;
+        menu.Items.Add(openLocation);
+
         menu.Show(anchor, new Point(0, anchor.Height + 2));
     }
 

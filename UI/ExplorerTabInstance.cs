@@ -261,7 +261,22 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         }
     }
 
-    public bool ExecuteSearch(string? query)
+    /// <summary>
+    /// Search scope, as File Explorer's Search options: true = the folder and all subfolders
+    /// (default), false = only the current folder.
+    /// </summary>
+    public bool SearchSubfolders { get; set; } = true;
+
+    /// <summary>Runs the current search again (after a search option changed).</summary>
+    public void RerunSearch()
+    {
+        if (IsShowingSearch && !string.IsNullOrWhiteSpace(SearchQuery))
+        {
+            ExecuteSearch(SearchQuery, force: true);
+        }
+    }
+
+    public bool ExecuteSearch(string? query, bool force = false)
     {
         if (_disposed)
         {
@@ -270,7 +285,19 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
         if (string.IsNullOrWhiteSpace(query))
         {
-            return !IsShowingSearch || NavigateToPath(_lastNonSearchPath);
+            SearchQuery = null;
+            if (!IsShowingSearch)
+            {
+                return true;
+            }
+
+            // Like Explorer: clearing the box returns to the folder that was searched.
+            return NavigateToPath(_lastNonSearchPath);
+        }
+
+        if (!force && IsShowingSearch && string.Equals(SearchQuery, query.Trim(), StringComparison.Ordinal))
+        {
+            return true;
         }
 
         if (_browser is null)
@@ -292,7 +319,10 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         {
             SearchQuery = query.Trim();
             _searchNavigationPending = true;
-            if (_browser.BrowseToObject(searchItem, ShellBrowserInterop.SBSP_ABSOLUTE) == 0)
+            uint flags = IsShowingSearch
+                ? ShellBrowserInterop.SBSP_ABSOLUTE | ShellBrowserInterop.SBSP_WRITENOHISTORY
+                : ShellBrowserInterop.SBSP_ABSOLUTE;
+            if (_browser.BrowseToObject(searchItem, flags) == 0)
             {
                 return true;
             }
@@ -323,11 +353,166 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         : ParsingPath;
 
     private bool _searchNavigationPending;
+    private static uint s_searchRevision;
     private readonly HashSet<string> _searchResultParsingNames = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Builds a search folder (file names containing <paramref name="query"/>, searched recursively
-    /// under <paramref name="baseFolder"/>) that the hosted browser shows in place.
+    /// "File contents" (Search options > Advanced options): the shell reads that setting only once
+    /// per process, so it is applied here instead: the free words of the query also match file
+    /// contents ("words" becomes "(words OR content:(words))"), while property filters such as
+    /// kind:=picture keep applying to every result.
+    /// </summary>
+    private static string WithContentMatch(string query)
+    {
+        List<string> filters = new();
+        List<string> words = new();
+        foreach (System.Text.RegularExpressions.Match token in
+                 System.Text.RegularExpressions.Regex.Matches(query, @"[^\s:""]+:(""[^""]*""|\S*)|""[^""]*""|\S+"))
+        {
+            bool isFilter = token.Value.Contains(':') && !token.Value.StartsWith('"');
+            (isFilter ? filters : words).Add(token.Value);
+        }
+
+        if (words.Count == 0)
+        {
+            return query;
+        }
+
+        string freeText = string.Join(' ', words);
+        string contentPart = $"({freeText} OR content:({freeText}))";
+        return filters.Count == 0 ? contentPart : $"{string.Join(' ', filters)} {contentPart}";
+    }
+
+    /// <summary>Creates a "property op string" condition leaf; returns IntPtr.Zero on failure.</summary>
+    private static IntPtr MakeStringLeaf(ShellBrowserInterop.IConditionFactory factory, string property, int cop, string value)
+    {
+        // PROPVARIANT { VARTYPE vt = VT_LPWSTR; ...; LPWSTR pwszVal at offset 8 }
+        IntPtr propVariant = Marshal.AllocCoTaskMem(24);
+        IntPtr text = Marshal.StringToCoTaskMemUni(value);
+        try
+        {
+            for (int i = 0; i < 24; i += 4)
+            {
+                Marshal.WriteInt32(propVariant, i, 0);
+            }
+
+            Marshal.WriteInt16(propVariant, 0, 31 /* VT_LPWSTR */);
+            Marshal.WriteIntPtr(propVariant, 8, text);
+            return factory.MakeLeaf(property, cop, null, propVariant, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, false,
+                out IntPtr leaf) == 0 ? leaf : IntPtr.Zero;
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(text);
+            Marshal.FreeCoTaskMem(propVariant);
+        }
+    }
+
+    // One query parser per UI thread: creating it loads the schema and is slow.
+    [ThreadStatic] private static ShellBrowserInterop.IQueryParser? t_queryParser;
+    [ThreadStatic] private static bool t_parserNatural;
+    [ThreadStatic] private static bool t_parserWildcard;
+
+    /// <summary>
+    /// Parses <paramref name="query"/> the way File Explorer's search box does (Advanced Query
+    /// Syntax: words match names, contents and properties; "kind:", "date:", "size:", ... work; words
+    /// are prefix-matched) and resolves it against the current time. Returns an ICondition pointer
+    /// the caller releases, or IntPtr.Zero when the parser is unavailable.
+    /// </summary>
+    private static IntPtr ParseNativeQuery(string query)
+    {
+        ShellBrowserInterop.IQuerySolution? solution = null;
+        IntPtr parsed = IntPtr.Zero;
+        IntPtr mainType = IntPtr.Zero;
+        IntPtr referenceTime = IntPtr.Zero;
+
+        try
+        {
+            // Same parser preferences File Explorer uses (Folder Options > Search)
+            bool naturalSyntax = SearchPreferences.NaturalQuerySyntax;
+            bool autoWildcard = SearchPreferences.AutoWildcard;
+            if (t_queryParser is not null && (t_parserNatural != naturalSyntax || t_parserWildcard != autoWildcard))
+            {
+                Marshal.ReleaseComObject(t_queryParser);
+                t_queryParser = null;
+            }
+
+            if (t_queryParser is null)
+            {
+                Type? managerType = Type.GetTypeFromCLSID(ShellBrowserInterop.ClsidQueryParserManager);
+                if (managerType is null ||
+                    Activator.CreateInstance(managerType) is not ShellBrowserInterop.IQueryParserManager manager)
+                {
+                    return IntPtr.Zero;
+                }
+
+                try
+                {
+                    Guid iidParser = ShellBrowserInterop.IidIQueryParser;
+                    ushort langId = (ushort)(System.Globalization.CultureInfo.CurrentUICulture.LCID & 0xFFFF);
+                    if (manager.CreateLoadedParser("SystemIndex", langId, ref iidParser, out ShellBrowserInterop.IQueryParser? parser) != 0 ||
+                        parser is null)
+                    {
+                        return IntPtr.Zero;
+                    }
+
+                    manager.InitializeOptions(naturalSyntax, autoWildcard, parser);
+                    t_queryParser = parser;
+                    t_parserNatural = naturalSyntax;
+                    t_parserWildcard = autoWildcard;
+                }
+                finally
+                {
+                    Marshal.ReleaseComObject(manager);
+                }
+            }
+
+            if (t_queryParser.Parse(query, IntPtr.Zero, out solution) != 0 || solution is null ||
+                solution.GetQuery(out parsed, out mainType) != 0 || parsed == IntPtr.Zero)
+            {
+                return IntPtr.Zero;
+            }
+
+            // SYSTEMTIME (8 WORDs) for relative terms like "date:today"
+            DateTime now = DateTime.Now;
+            referenceTime = Marshal.AllocCoTaskMem(16);
+            short[] st =
+            {
+                (short)now.Year, (short)now.Month, (short)now.DayOfWeek, (short)now.Day,
+                (short)now.Hour, (short)now.Minute, (short)now.Second, (short)now.Millisecond
+            };
+            Marshal.Copy(st, 0, referenceTime, st.Length);
+
+            if (solution.Resolve(parsed, 0, referenceTime, out IntPtr resolved) == 0 && resolved != IntPtr.Zero)
+            {
+                return resolved;
+            }
+
+            // Resolution failed: use the unresolved condition (ownership passes to the caller)
+            IntPtr result = parsed;
+            parsed = IntPtr.Zero;
+            return result;
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
+        finally
+        {
+            if (parsed != IntPtr.Zero) Marshal.Release(parsed);
+            if (mainType != IntPtr.Zero) Marshal.Release(mainType);
+            if (referenceTime != IntPtr.Zero) Marshal.FreeCoTaskMem(referenceTime);
+            if (solution is not null) Marshal.ReleaseComObject(solution);
+        }
+    }
+
+    /// <summary>
+    /// Builds a search folder (the native query, searched recursively under
+    /// <paramref name="baseFolder"/>) that the hosted browser shows in place.
     /// </summary>
     private ShellBrowserInterop.IShellItem? CreateSearchFolderItem(string baseFolder, string query)
     {
@@ -336,8 +521,6 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         ShellBrowserInterop.IShellItem? scopeItem = null;
         ShellBrowserInterop.IShellItemArray? scope = null;
         IntPtr condition = IntPtr.Zero;
-        IntPtr propVariant = IntPtr.Zero;
-        IntPtr queryText = IntPtr.Zero;
 
         try
         {
@@ -369,33 +552,37 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
                 return null;
             }
 
-            // PROPVARIANT { VARTYPE vt = VT_LPWSTR; ...; LPWSTR pwszVal at offset 8 }
-            const short VtLpwstr = 31;
-            propVariant = Marshal.AllocCoTaskMem(24);
-            for (int i = 0; i < 24; i += 4)
+            string parseText = SearchPreferences.FileContents ? WithContentMatch(query) : query;
+
+            // "Current folder" scope: the query AND "folder path = the searched folder", in AQS
+            if (!SearchSubfolders && Directory.Exists(baseFolder))
             {
-                Marshal.WriteInt32(propVariant, i, 0);
+                parseText = $"({parseText}) System.ItemFolderPathDisplay:=\"{baseFolder.TrimEnd('\\')}\"";
+            }
+            condition = ParseNativeQuery(parseText);
+
+            if (condition == IntPtr.Zero)
+            {
+                // Fallback when the query parser is unavailable: file name contains the text.
+                condition = MakeStringLeaf(conditionFactory, "System.ItemNameDisplay", ShellBrowserInterop.COP_VALUE_CONTAINS, query);
+                if (condition == IntPtr.Zero)
+                {
+                    return null;
+                }
             }
 
-            queryText = Marshal.StringToCoTaskMemUni(query);
-            Marshal.WriteInt16(propVariant, 0, VtLpwstr);
-            Marshal.WriteIntPtr(propVariant, 8, queryText);
-
-            if (conditionFactory.MakeLeaf(
-                    "System.ItemNameDisplay",
-                    ShellBrowserInterop.COP_VALUE_CONTAINS,
-                    null,
-                    propVariant,
-                    IntPtr.Zero,
-                    IntPtr.Zero,
-                    IntPtr.Zero,
-                    false,
-                    out condition) != 0 || condition == IntPtr.Zero)
+            // Same title format as File Explorer ("query - Search Results in Folder"). The shell reuses
+            // the results of an earlier search folder with the same name (stale after an option or file
+            // change), so every search gets a unique invisible suffix: a counter written in zero-width
+            // characters.
+            uint revision = ++s_searchRevision;
+            System.Text.StringBuilder marker = new();
+            for (; revision > 0; revision >>= 1)
             {
-                return null;
+                marker.Append((revision & 1) == 0 ? '​' : '‌');
             }
 
-            factory.SetDisplayName($"Search Results in {GetShortFolderTitle(baseFolder)}");
+            factory.SetDisplayName($"{query} - Search Results in {GetShortFolderTitle(baseFolder)}{marker}");
             factory.SetScope(scope);
             factory.SetCondition(condition);
 
@@ -419,8 +606,6 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         finally
         {
             if (condition != IntPtr.Zero) Marshal.Release(condition);
-            if (queryText != IntPtr.Zero) Marshal.FreeCoTaskMem(queryText);
-            if (propVariant != IntPtr.Zero) Marshal.FreeCoTaskMem(propVariant);
             if (scope is not null) Marshal.ReleaseComObject(scope);
             if (scopeItem is not null) Marshal.ReleaseComObject(scopeItem);
             if (factory is not null) Marshal.ReleaseComObject(factory);
@@ -475,6 +660,66 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
             if (hasItems)
             {
                 FocusEdgeItem(last: false);
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// After a navigation, selects (and puts the cursor on) the item named <paramref name="fileName"/>
+    /// once the new folder has enumerated. Used by "Open file location" from search results.
+    /// </summary>
+    public async void SelectItemByNameWhenReady(string fileName)
+    {
+        int[] delays = { 100, 150, 250, 400, 600, 900, 1200 };
+        foreach (int delay in delays)
+        {
+            await Task.Delay(delay);
+            if (_disposed || _browser is null)
+            {
+                return;
+            }
+
+            if (IsShowingSearch)
+            {
+                continue; // the folder has not replaced the search results yet
+            }
+
+            bool done = false;
+            WithFolderView2(folderView2 =>
+            {
+                if (folderView2.ItemCount(0x0002 /* SVGIO_ALLVIEW */, out int count) != 0)
+                {
+                    return;
+                }
+
+                Guid iid = ShellBrowserInterop.IidIShellItem;
+                for (int i = 0; i < count && !done; i++)
+                {
+                    if (folderView2.GetItem(i, ref iid, out object? obj) != 0 || obj is not ShellBrowserInterop.IShellItem item)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        if (item.GetDisplayName(ShellBrowserInterop.SIGDN_FILESYSPATH, out string? path) == 0 &&
+                            string.Equals(Path.GetFileName(path), fileName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            folderView2.SelectItem(i, SvsiSelect | SvsiDeselectOthers | SvsiFocused | SvsiEnsureVisible);
+                            _cachedSelectedCount = -1;
+                            done = true;
+                        }
+                    }
+                    finally
+                    {
+                        Marshal.ReleaseComObject(item);
+                    }
+                }
+            });
+
+            if (done)
+            {
                 return;
             }
         }

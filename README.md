@@ -12,7 +12,8 @@ A Windows 11 File Explorer replacement with **tabs, a side-by-side split view an
 - **Total Commander style keys in split mode** — Space/Insert to mark, Num * to invert, F3 viewer, F4 edit, F5 copy, F6 move, F7 new folder, F8 delete, with a function-key bar in the status bar.
 - **F3 quick viewer** (like Total Commander's Lister) — native previews for PDF and Office files, images, text (UTF-8 / UTF-16 / ANSI) and hex.
 - **Preview pane** using the registered Windows preview handlers (PDF, Word, Excel, PowerPoint, mail, …).
-- **Native Share sheet**, Sort / Group by / View menus, breadcrumb address bar, search box.
+- **Native Share sheet**, Sort / Group by / View menus, breadcrumb address bar.
+- **Native search in the active pane** — the same query engine as File Explorer (names, properties, `kind:`, `date:`, `size:` ...), updated as you type, with the **Search options** menu (Current folder / All subfolders, Date modified, Kind, Size, Other properties, Advanced options) and **Close search**. Advanced options are File Explorer's own settings; File contents applies at once, System files and Zipped folders after Explorer2 restarts.
 - **Optional default-Explorer replacement** — open folders and **Win+E** in Explorer2.
 - **Tray app** — runs in the background, opens new windows instantly, optional start with Windows.
 - Light and dark mode follow the Windows theme.
@@ -107,7 +108,7 @@ Closing the last tab of one pane in split mode closes that pane (the other pane'
 | Back / Forward | **Alt+Left** / **Alt+Right** |
 | Up one folder | **Backspace** or **Alt+Up** |
 | Edit the address | **Ctrl+L**, **Alt+D** (and **F4** in normal mode) |
-| Search the current folder (file names, results in the same tab) | **Ctrl+F** (and **F3** in normal mode); **Esc** or the **X** clears it |
+| Search the current folder (Windows search, results in the same tab, updates as you type) | **Ctrl+F** (and **F3** in normal mode); **Esc**, the **X** or **Close search** ends it |
 | Refresh | **F5** in normal mode |
 | Rename | **F2** |
 | New folder | **Ctrl+Shift+N** |

@@ -697,4 +697,76 @@ internal static class ShellBrowserInterop
         [PreserveSig]
         int Resolve(IntPtr pc, int sqro, IntPtr pstReferenceTime, out IntPtr ppcResolved);
     }
+
+    // Native query parsing (Advanced Query Syntax), the same engine File Explorer's search box uses.
+    internal static readonly Guid ClsidQueryParserManager = new("5088B39A-29B4-4D9D-8245-4EE289222F66");
+    internal static readonly Guid IidIQueryParser = new("2EBDEE67-3505-43F8-9946-EA44ABC8E5B0");
+    internal const uint SBSP_WRITENOHISTORY = 0x08000000;
+
+    // Vtable order matches structuredquery.h exactly.
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("A879E3C4-AF77-44FB-8F37-EBD1487CF920")]
+    internal interface IQueryParserManager
+    {
+        [PreserveSig]
+        int CreateLoadedParser(
+            [MarshalAs(UnmanagedType.LPWStr)] string pszCatalog,
+            ushort langidForKeywords,
+            ref Guid riid,
+            [MarshalAs(UnmanagedType.Interface)] out IQueryParser? ppQueryParser);
+
+        [PreserveSig]
+        int InitializeOptions(
+            [MarshalAs(UnmanagedType.Bool)] bool fUnderstandNQS,
+            [MarshalAs(UnmanagedType.Bool)] bool fAutoWildCard,
+            [MarshalAs(UnmanagedType.Interface)] IQueryParser pQueryParser);
+
+        [PreserveSig]
+        int SetOption(int option, IntPtr pOptionValue);
+    }
+
+    // Vtable order matches structuredquery.h exactly (only Parse is called).
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("2EBDEE67-3505-43F8-9946-EA44ABC8E5B0")]
+    internal interface IQueryParser
+    {
+        [PreserveSig]
+        int Parse(
+            [MarshalAs(UnmanagedType.LPWStr)] string pszInputString,
+            IntPtr pCustomProperties,
+            [MarshalAs(UnmanagedType.Interface)] out IQuerySolution? ppSolution);
+    }
+
+    // IQuerySolution derives from IConditionFactory: its four methods come first.
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("D6EBC66B-8921-4193-AFDD-A1789FB7FF57")]
+    internal interface IQuerySolution
+    {
+        [PreserveSig]
+        int MakeNot(IntPtr pcSub, [MarshalAs(UnmanagedType.Bool)] bool fSimplify, out IntPtr ppcResult);
+
+        [PreserveSig]
+        int MakeAndOr(int ct, IntPtr peuSubs, [MarshalAs(UnmanagedType.Bool)] bool fSimplify, out IntPtr ppcResult);
+
+        [PreserveSig]
+        int MakeLeaf(
+            IntPtr pszPropertyName,
+            int cop,
+            IntPtr pszValueType,
+            IntPtr ppropvar,
+            IntPtr pPropertyNameTerm,
+            IntPtr pOperationTerm,
+            IntPtr pValueTerm,
+            [MarshalAs(UnmanagedType.Bool)] bool fExpand,
+            out IntPtr ppcResult);
+
+        [PreserveSig]
+        int Resolve(IntPtr pc, int sqro, IntPtr pstReferenceTime, out IntPtr ppcResolved);
+
+        [PreserveSig]
+        int GetQuery(out IntPtr ppQueryNode, out IntPtr ppMainType);
+    }
 }
