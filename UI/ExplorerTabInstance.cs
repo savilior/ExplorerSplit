@@ -805,7 +805,18 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
     }
 
     /// <summary>Returns the file-system paths of the selected items (non-file-system items are skipped).</summary>
-    public List<string> GetSelectedItemPaths(int maxItems = int.MaxValue)
+    public List<string> GetSelectedItemPaths(int maxItems = int.MaxValue) =>
+        GetItemPaths(ShellBrowserInterop.SVGIO_SELECTION, maxItems);
+
+    /// <summary>File-system paths of every item in the view, in the view's display (sort) order.</summary>
+    public List<string> GetAllItemPathsInViewOrder()
+    {
+        const uint SVGIO_ALLVIEW = 0x00000002;
+        const uint SVGIO_FLAG_VIEWORDER = 0x80000000;
+        return GetItemPaths(SVGIO_ALLVIEW | SVGIO_FLAG_VIEWORDER, int.MaxValue);
+    }
+
+    private List<string> GetItemPaths(uint svgio, int maxItems)
     {
         List<string> result = new();
         if (_browser is null || _disposed)
@@ -823,7 +834,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         try
         {
             Guid iidArray = ShellBrowserInterop.IidIShellItemArray;
-            if (folderView.Items(ShellBrowserInterop.SVGIO_SELECTION, ref iidArray, out object? arrayObj) != 0 ||
+            if (folderView.Items(svgio, ref iidArray, out object? arrayObj) != 0 ||
                 arrayObj is not ShellBrowserInterop.IShellItemArray itemArray)
             {
                 return result;

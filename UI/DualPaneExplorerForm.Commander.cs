@@ -150,6 +150,12 @@ internal sealed partial class DualPaneExplorerForm
             return true;
         }
 
+        if (modifiers == Keys.Shift && keyCode == Keys.F3)
+        {
+            CommanderOpenWithDefaultApp(tab);
+            return true;
+        }
+
         if (modifiers == Keys.Shift && keyCode == Keys.F6)
         {
             tab.InvokeShellVerb("rename");
@@ -219,8 +225,54 @@ internal sealed partial class DualPaneExplorerForm
         }
     }
 
-    /// <summary>F3: open the selected file with its default app (a single folder is entered).</summary>
+    /// <summary>
+    /// F3: open the quick viewer (Total Commander's Lister) on the selected file; N / P in the viewer
+    /// step through the folder's files in display order. A single selected folder is entered instead.
+    /// </summary>
     private void CommanderView(ExplorerTabInstance tab)
+    {
+        List<string> selected = tab.GetSelectedItemPaths();
+        if (selected.Count == 0)
+        {
+            SystemSounds.Beep.Play();
+            return;
+        }
+
+        if (selected.Count == 1 && Directory.Exists(selected[0]))
+        {
+            tab.NavigateToPath(selected[0]);
+            return;
+        }
+
+        string? first = selected.FirstOrDefault(File.Exists);
+        if (first is null)
+        {
+            SystemSounds.Beep.Play();
+            return;
+        }
+
+        List<string> files = tab.GetAllItemPathsInViewOrder().Where(File.Exists).ToList();
+        int index = files.FindIndex(p => string.Equals(p, first, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+        {
+            files = selected.Where(File.Exists).ToList();
+            index = 0;
+        }
+
+        QuickViewerForm viewer = new(files, index, _isDarkMode, _windowIcon, this);
+        viewer.FormClosed += (_, _) =>
+        {
+            if (!IsDisposed)
+            {
+                Activate();
+                tab.FocusFileListView();
+            }
+        };
+        viewer.Show(this);
+    }
+
+    /// <summary>Shift+F3: open the selection with its default app (a single folder is entered).</summary>
+    private void CommanderOpenWithDefaultApp(ExplorerTabInstance tab)
     {
         List<string> paths = tab.GetSelectedItemPaths();
         if (paths.Count == 0)
