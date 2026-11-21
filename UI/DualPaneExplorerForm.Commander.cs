@@ -8,9 +8,8 @@ namespace Explorer2.UI;
 /// <summary>
 /// Total Commander style pane behaviour, active in split mode:
 /// Space / Insert toggle the focused item's selection and move down, Num * inverts the selection,
-/// a "[..]" row at the top of each pane goes up one folder (reachable with Up from the first item,
-/// Home, or the mouse), and F3 View, F4 Edit, F5 Copy, F6 Move, F7 New Folder, F8 Delete
-/// (also on a function key bar above the status bar).
+/// and F3 View, F4 Edit, F5 Copy, F6 Move, F7 New Folder, F8 Delete (also as buttons in the
+/// status bar). Backspace goes up one folder in both modes.
 /// </summary>
 internal sealed partial class DualPaneExplorerForm
 {
@@ -18,8 +17,6 @@ internal sealed partial class DualPaneExplorerForm
     {
         _functionKeyBar.Visible = _isSplitEnabled;
         LayoutFunctionKeyBar();
-        _leftFilesPane.SetCommanderMode(_isSplitEnabled);
-        _rightFilesPane.SetCommanderMode(_isSplitEnabled);
     }
 
     /// <summary>
@@ -34,26 +31,65 @@ internal sealed partial class DualPaneExplorerForm
         }
     }
 
-    private void OnParentRowClicked(TabbedExplorerPane pane)
+    // Native window that had keyboard focus when this window was deactivated.
+    private IntPtr _focusBeforeDeactivate;
+
+    protected override void OnDeactivate(EventArgs e)
     {
-        SetSelectedPane(pane);
-        pane.ActiveTab?.FocusFileListView();
-        pane.ParentRow.IsCursorOn = true;
+        // WM_ACTIVATE(inactive) arrives before WM_KILLFOCUS, so focus is still ours here.
+        IntPtr focused = NativeMethods.GetFocus();
+        _focusBeforeDeactivate = focused != IntPtr.Zero && IsHandleCreated && NativeMethods.IsChild(Handle, focused)
+            ? focused
+            : IntPtr.Zero;
+        base.OnDeactivate(e);
     }
 
-    /// <summary>Called for mouse clicks: a click anywhere other than a [..] row takes its cursor off.</summary>
-    private void ClearParentRowCursorsForClick(IntPtr clickedHwnd)
+    protected override void OnActivated(EventArgs e)
     {
-        foreach (TabbedExplorerPane pane in new[] { _leftFilesPane, _rightFilesPane })
+        base.OnActivated(e);
+
+        // WinForms restores focus to its own last ActiveControl, which for the native file list is
+        // the pane divider (SplitContainer). Put focus back where it really was — normally the
+        // active tab's file list — after WinForms has finished.
+        IntPtr previous = _focusBeforeDeactivate;
+        BeginInvoke(() =>
         {
-            ParentFolderRow row = pane.ParentRow;
-            if (row.IsCursorOn && (!row.IsHandleCreated || clickedHwnd != row.Handle))
+            if (IsDisposed || Form.ActiveForm != this)
             {
-                row.IsCursorOn = false;
+                return;
             }
-        }
+
+            if (previous != IntPtr.Zero && NativeMethods.IsWindow(previous) && NativeMethods.IsChild(Handle, previous))
+            {
+                NativeMethods.SetFocus(previous);
+            }
+            else if (ActiveControl is not TextBoxBase)
+            {
+                _selectedPane?.ActiveTab?.FocusFileListView();
+            }
+        });
     }
 
+    /// <summary>
+    /// The split toggle hotkey (configurable from the tray menu, Ctrl+Shift+S by default) handled
+    /// inside the window, so it also works for windows not managed by the tray process.
+    /// </summary>
+    private static bool IsSplitToggleHotkey(Keys keyCode, Keys modifiers)
+    {
+        if (modifiers == Keys.None || keyCode is Keys.ShiftKey or Keys.ControlKey or Keys.Menu)
+        {
+            return false;
+        }
+
+        Configuration.AppSettings settings = Configuration.AppSettings.Load();
+        uint mods = 0;
+        if ((modifiers & Keys.Control) != 0) mods |= NativeMethods.MOD_CONTROL;
+        if ((modifiers & Keys.Alt) != 0) mods |= NativeMethods.MOD_ALT;
+        if ((modifiers & Keys.Shift) != 0) mods |= NativeMethods.MOD_SHIFT;
+
+        uint wanted = settings.HotkeyModifiers & (NativeMethods.MOD_CONTROL | NativeMethods.MOD_ALT | NativeMethods.MOD_SHIFT);
+        return keyCode == settings.HotkeyKey && mods == wanted && (settings.HotkeyModifiers & NativeMethods.MOD_WIN) == 0;
+    }
 
     /// <summary>
     /// Centers the function key buttons in the status bar, keeping clear of the item counts on the
@@ -97,30 +133,6 @@ internal sealed partial class DualPaneExplorerForm
     private TabbedExplorerPane OtherPane(TabbedExplorerPane pane) =>
         pane == _leftFilesPane ? _rightFilesPane : _leftFilesPane;
 
-    private void GoUpFromParentRow(TabbedExplorerPane pane)
-    {
-        SetSelectedPane(pane);
-        ExplorerTabInstance? tab = pane.ActiveTab;
-        if (tab is null)
-        {
-            return;
-        }
-
-        // Return keyboard focus to the file list once the parent folder has loaded (the shell
-        // places the cursor on the folder we came from, as Total Commander does).
-        void OnArrived(ExplorerTabInstance arrived)
-        {
-            arrived.NavigationCompleted -= OnArrived;
-            if (!IsDisposed)
-            {
-                BeginInvoke(arrived.FocusFileListView);
-            }
-        }
-
-        tab.NavigationCompleted += OnArrived;
-        tab.NavigateRelative(ShellBrowserInterop.SBSP_PARENT);
-    }
-
     /// <summary>Handles a key press in split mode. Returns true when the key was consumed.</summary>
     private bool HandleCommanderKey(IntPtr hwnd, Keys keyCode, Keys modifiers)
     {
@@ -129,42 +141,6 @@ internal sealed partial class DualPaneExplorerForm
         if (tab is null)
         {
             return false;
-        }
-
-        ParentFolderRow parentRow = pane.ParentRow;
-        bool onParentRow = parentRow.Visible && parentRow.IsCursorOn;
-
-        if (onParentRow)
-        {
-            if (modifiers == Keys.None)
-            {
-                switch (keyCode)
-                {
-                    case Keys.Return:
-                    case Keys.Back:
-                        parentRow.IsCursorOn = false;
-                        GoUpFromParentRow(pane);
-                        return true;
-                    case Keys.Down:
-                    case Keys.PageDown:
-                    case Keys.End:
-                        parentRow.IsCursorOn = false;
-                        FocusFirstListItem(tab, keyCode == Keys.End);
-                        return true;
-                    case Keys.Up:
-                    case Keys.Home:
-                    case Keys.PageUp:
-                    case Keys.Space:
-                    case Keys.Insert:
-                        return true;
-                }
-            }
-
-            // Any other key (type-to-find letters, Tab, function keys, ...) takes the cursor off [..]
-            if (keyCode is not (Keys.ShiftKey or Keys.ControlKey or Keys.Menu))
-            {
-                parentRow.IsCursorOn = false;
-            }
         }
 
         // Function keys work wherever focus is in the window (except text fields).
@@ -198,47 +174,11 @@ internal sealed partial class DualPaneExplorerForm
             return true;
         }
 
-        if (parentRow.Visible && modifiers == Keys.None)
-        {
-            if (keyCode == Keys.Home)
-            {
-                parentRow.IsCursorOn = true;
-                return true;
-            }
-
-            if (keyCode == Keys.Up)
-            {
-                int before = tab.GetFocusedItemIndex();
-                if (before < 0)
-                {
-                    parentRow.IsCursorOn = true;
-                    return true;
-                }
-
-                // Let the view move the cursor; if it could not move (already on the first item),
-                // step onto the [..] row like Total Commander.
-                BeginInvoke(() =>
-                {
-                    if (!IsDisposed && pane.ActiveTab == tab && tab.GetFocusedItemIndex() == before)
-                    {
-                        parentRow.IsCursorOn = true;
-                    }
-                });
-                return false;
-            }
-        }
-
         return false;
     }
 
     private static void ToggleSelectionAndAdvance(ExplorerTabInstance tab) =>
         tab.ToggleFocusedSelectionAndAdvance();
-
-    private static void FocusFirstListItem(ExplorerTabInstance tab, bool toEnd)
-    {
-        tab.FocusFileListView();
-        tab.FocusEdgeItem(last: toEnd);
-    }
 
     private void RunCommanderFunctionKey(Keys key, Keys modifiers)
     {

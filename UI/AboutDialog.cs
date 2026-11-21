@@ -72,7 +72,7 @@ internal sealed class AboutDialog : Form
 
         Controls.Add(new Label
         {
-            Text = "Made By Saavy",
+            Text = "Made By Savvy",
             ForeColor = fg,
             AutoSize = true,
             Location = new Point(90, 84)

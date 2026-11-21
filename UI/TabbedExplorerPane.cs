@@ -7,16 +7,12 @@ internal sealed class TabbedExplorerPane : Panel
 {
     private readonly List<ExplorerTabInstance> _tabs = new();
     private readonly Panel _contentContainer;
-    private readonly ParentFolderRow _parentRow;
     private readonly bool _isDarkMode;
-    private bool _commanderMode;
 
     public event Action<TabbedExplorerPane>? PaneSelected;
     public event Action<TabbedExplorerPane, ExplorerTabInstance>? ActiveTabStateChanged;
     public event Action<TabbedExplorerPane>? TabsChanged;
     public event Action<TabbedExplorerPane>? LastTabCloseRequested;
-    public event Action<TabbedExplorerPane>? ParentRowActivated;
-    public event Action<TabbedExplorerPane>? ParentRowClicked;
     public event Action<TabbedExplorerPane, ExplorerTabInstance>? ActiveTabNavigated;
 
     public TabbedExplorerPane(string paneName, bool isDarkMode)
@@ -39,39 +35,7 @@ internal sealed class TabbedExplorerPane : Panel
             Padding = Padding.Empty
         };
 
-        _parentRow = new ParentFolderRow(isDarkMode) { Visible = false };
-        _parentRow.ActivateRequested += () => ParentRowActivated?.Invoke(this);
-        _parentRow.Clicked += () => ParentRowClicked?.Invoke(this);
-
         Controls.Add(_contentContainer);
-        Controls.Add(_parentRow);
-    }
-
-    /// <summary>The Total Commander style "[..]" row (visible only in commander/split mode).</summary>
-    public ParentFolderRow ParentRow => _parentRow;
-
-    /// <summary>
-    /// Enables Total Commander style pane behaviour (currently: the "[..]" row). Used in split mode.
-    /// </summary>
-    public void SetCommanderMode(bool enabled)
-    {
-        _commanderMode = enabled;
-        UpdateParentRowVisibility();
-    }
-
-    public void UpdateParentRowVisibility()
-    {
-        bool show = _commanderMode && ActiveTab is not null && ActiveTab.CanNavigateUp;
-        if (!show)
-        {
-            _parentRow.IsCursorOn = false;
-        }
-
-        if (_parentRow.Visible != show)
-        {
-            _parentRow.Visible = show;
-            ActiveTab?.SyncRect();
-        }
     }
 
     public string PaneName { get; }
@@ -147,7 +111,6 @@ internal sealed class TabbedExplorerPane : Panel
             }
         }
 
-        UpdateParentRowVisibility();
         TabsChanged?.Invoke(this);
 
         if (notifyPaneSelected)
@@ -335,13 +298,6 @@ internal sealed class TabbedExplorerPane : Panel
 
     private void OnTabNavigationCompleted(ExplorerTabInstance tab)
     {
-        if (tab == ActiveTab)
-        {
-            // A new folder starts with the cursor in the file list (the shell selects the folder we came from)
-            _parentRow.IsCursorOn = false;
-            UpdateParentRowVisibility();
-        }
-
         if (tab == ActiveTab)
         {
             ActiveTabNavigated?.Invoke(this, tab);

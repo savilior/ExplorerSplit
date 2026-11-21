@@ -338,43 +338,6 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         }
     }
 
-    /// <summary>True when the current folder has a parent to go up to (used for the [..] row).</summary>
-    public bool CanNavigateUp =>
-        !string.IsNullOrWhiteSpace(ParsingPath) &&
-        // Home (Quick access) is the top of the navigation tree; its parsing name can appear as
-        // "::{GUID}", "shell:::{GUID}" or with different casing, so match on the GUID itself.
-        ParsingPath.IndexOf(ExplorerDetector.HomeShellGuid.TrimStart(':'), StringComparison.OrdinalIgnoreCase) < 0 &&
-        !ParsingPath.StartsWith("search-ms:", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>The view index of the item with keyboard focus, or -1.</summary>
-    public int GetFocusedItemIndex()
-    {
-        if (_browser is null || _disposed)
-        {
-            return -1;
-        }
-
-        Guid iid = ShellBrowserInterop.IidIFolderView2;
-        if (_browser.GetCurrentView(ref iid, out object? fvObj) != 0 ||
-            fvObj is not ShellBrowserInterop.IFolderView2 folderView2)
-        {
-            return -1;
-        }
-
-        try
-        {
-            return folderView2.GetFocusedItem(out int index) == 0 ? index : -1;
-        }
-        catch
-        {
-            return -1;
-        }
-        finally
-        {
-            Marshal.ReleaseComObject(folderView2);
-        }
-    }
-
     private const uint SvsiDeselect = 0x0000;
     private const uint SvsiSelect = 0x0001;
     private const uint SvsiDeselectOthers = 0x0004;

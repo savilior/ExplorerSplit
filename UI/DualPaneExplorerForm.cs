@@ -521,10 +521,6 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         _leftFilesPane.LastTabCloseRequested += _ => OnLeftPaneLastTabClosing();
         _rightFilesPane.LastTabCloseRequested += _ => OnRightPaneLastTabClosing();
 
-        _leftFilesPane.ParentRowActivated += GoUpFromParentRow;
-        _rightFilesPane.ParentRowActivated += GoUpFromParentRow;
-        _leftFilesPane.ParentRowClicked += OnParentRowClicked;
-        _rightFilesPane.ParentRowClicked += OnParentRowClicked;
         _leftFilesPane.ActiveTabNavigated += OnActiveTabNavigated;
         _rightFilesPane.ActiveTabNavigated += OnActiveTabNavigated;
 
@@ -788,8 +784,10 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         g.DrawImage(_titleAppIcon, new Rectangle(12, iconY, 18, 18));
         _appIconBounds = new Rectangle(6, 0, 30, barH);
 
+        // The "Explorer2" name is shown only in split mode, where the tabs start above the file pane;
+        // in normal mode the tabs start right after the icon, like File Explorer.
         int brandMaxRight = Math.Max(40, leftZoneStartX - 10);
-        if (brandMaxRight > 42)
+        if (_isSplitEnabled && brandMaxRight > 42)
         {
             Rectangle brandTextRect = new(36, 0, brandMaxRight - 36, barH);
             TextRenderer.DrawText(
@@ -827,12 +825,13 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         }
         else
         {
-            // Single-pane mode: Left Files Pane tabs aligned above Left Files Pane
+            // Single-pane mode: tabs start right after the app icon
+            int normalStartX = _appIconBounds.Right + 4;
             DrawPaneTabZone(
                 g,
                 _leftFilesPane,
-                startX: leftZoneStartX,
-                maxRightX: Math.Max(leftZoneStartX + 140, captionLeft - 12),
+                startX: normalStartX,
+                maxRightX: Math.Max(normalStartX + 140, captionLeft - 12),
                 isLeftZone: true,
                 out _leftPaneAddTabBounds);
         }
@@ -2790,8 +2789,6 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
         if (m.Msg is NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN or NativeMethods.WM_MBUTTONDOWN)
         {
-            ClearParentRowCursorsForClick(m.HWnd);
-
             if (_isEditingAddress &&
                 m.HWnd != _addressTextBox.Handle &&
                 !NativeMethods.IsChild(_breadcrumbView.Parent?.Handle ?? IntPtr.Zero, m.HWnd))
@@ -2822,6 +2819,12 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         {
             Keys keyCode = (Keys)m.WParam.ToInt32() & Keys.KeyCode;
             Keys modifiers = Control.ModifierKeys;
+
+            if (IsSplitToggleHotkey(keyCode, modifiers))
+            {
+                ToggleDualPaneSplit();
+                return true;
+            }
 
             if (_isSplitEnabled && !IsTextEditControlFocused(m.HWnd) && HandleCommanderKey(m.HWnd, keyCode, modifiers))
             {
