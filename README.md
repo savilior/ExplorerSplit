@@ -2,7 +2,7 @@
 
 A Windows 11 File Explorer replacement with **tabs, a side-by-side split view and Total Commander style keyboard control** — built on the native Windows shell, so file lists, context menus, thumbnails, drag & drop, previews and sharing all behave exactly like File Explorer.
 
-![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-blue) ![.NET](https://img.shields.io/badge/.NET-8.0-purple)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-blue) ![.NET](https://img.shields.io/badge/.NET-8.0-purple) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
 
@@ -163,6 +163,10 @@ dotnet build Explorer2.sln -c Release
 ```
 
 The executable is written to `bin\Release\net8.0-windows\Explorer2.exe`.
+
+## License
+
+Explorer2 is released under the [MIT License](LICENSE).
 
 ## About
 
