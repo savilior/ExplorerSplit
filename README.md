@@ -20,12 +20,22 @@ A Windows 11 File Explorer replacement with **tabs, a side-by-side split view an
 ## Requirements
 
 - Windows 10 (version 2004 / build 19041) or later, x64 — Windows 11 recommended.
-- To **build**: the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
-- To **run** a build on another PC: the [.NET 8 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/8.0) (included with the SDK).
+- The **standalone** download needs nothing else. The smaller download and building from source need .NET 8 (see below).
 
 ## Installation
 
-There is no installer yet; Explorer2 is built from source and run from a folder of your choice.
+### Download (recommended)
+
+1. Go to the [latest release](https://github.com/savilior/ExplorerSplit/releases/latest) and download one of:
+   - **`Explorer2-vX.Y.Z-win-x64-standalone.zip`** — a single `Explorer2.exe` with .NET included. Nothing else to install.
+   - **`Explorer2-vX.Y.Z-win-x64-requires-dotnet8.zip`** — much smaller, but needs the [.NET 8 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/8.0) installed.
+2. Extract it to a **permanent** folder, for example `%LOCALAPPDATA%\Programs\Explorer2`. Windows remembers this location for *Run at Windows Startup* and *Replace Default File Explorer*, so don't run it from the Downloads folder or a temporary location.
+3. Run `Explorer2.exe`. An Explorer2 window opens and an icon appears in the notification area (system tray).
+
+   The app isn't code-signed yet, so Windows SmartScreen may show *"Windows protected your PC"* the first time. Click **More info → Run anyway**.
+4. Optional — right-click the tray icon and turn on **Run at Windows Startup** and/or **Replace Default File Explorer** (opens folders and **Win+E** in Explorer2).
+
+### Build from source
 
 1. **Install the .NET 8 SDK** from <https://dotnet.microsoft.com/download/dotnet/8.0> (choose *SDK x64*), or with winget:
 
@@ -62,7 +72,7 @@ There is no installer yet; Explorer2 is built from source and run from a folder 
 
 ### Updating
 
-Exit Explorer2 (tray icon → **Exit**), then in the source folder:
+Exit Explorer2 (tray icon → **Exit**). If you use the download, replace the files in your install folder with the new release. If you build from source, run in the source folder:
 
 ```powershell
 git pull
