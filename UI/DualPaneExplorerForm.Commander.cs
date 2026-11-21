@@ -81,6 +81,19 @@ internal sealed partial class DualPaneExplorerForm
         }
     }
 
+    /// <summary>Called by <see cref="CommanderKeyClaim"/>: should this window take a plain F6 press?</summary>
+    internal bool WantsClaimedF6() =>
+        _isSplitEnabled && !IsTextEditControlFocused(NativeMethods.GetFocus());
+
+    /// <summary>F6 delivered by <see cref="CommanderKeyClaim"/> (it never reaches the message loop).</summary>
+    internal void OnClaimedF6()
+    {
+        if (!IsDisposed && _isSplitEnabled)
+        {
+            RunCommanderFunctionKey(Keys.F6, Keys.None);
+        }
+    }
+
     private TabbedExplorerPane OtherPane(TabbedExplorerPane pane) =>
         pane == _leftFilesPane ? _rightFilesPane : _leftFilesPane;
 

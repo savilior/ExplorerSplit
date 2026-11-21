@@ -572,6 +572,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
     {
         base.OnHandleCreated(e);
         AddAboutToSystemMenu();
+        CommanderKeyClaim.Register(this);
 
         try
         {
@@ -2987,6 +2988,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         if (disposing)
         {
             Application.RemoveMessageFilter(this);
+            CommanderKeyClaim.Unregister(this);
             if (IsHandleCreated)
             {
                 NativeShare.Forget(Handle);
