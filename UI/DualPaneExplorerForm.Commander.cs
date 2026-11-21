@@ -17,8 +17,21 @@ internal sealed partial class DualPaneExplorerForm
     private void ApplyCommanderMode()
     {
         _functionKeyBar.Visible = _isSplitEnabled;
+        LayoutFunctionKeyBar();
         _leftFilesPane.SetCommanderMode(_isSplitEnabled);
         _rightFilesPane.SetCommanderMode(_isSplitEnabled);
+    }
+
+    /// <summary>
+    /// In split mode, a folder you just entered gets the cursor on its first item, so Enter / Space /
+    /// arrows work immediately (going up, back or forward keeps the shell's own selection).
+    /// </summary>
+    private void OnActiveTabNavigated(TabbedExplorerPane pane, ExplorerTabInstance tab)
+    {
+        if (_isSplitEnabled && !tab.LastNavigationRestoresSelection)
+        {
+            tab.SelectFirstItemWhenReady();
+        }
     }
 
     private void OnParentRowClicked(TabbedExplorerPane pane)
@@ -41,6 +54,32 @@ internal sealed partial class DualPaneExplorerForm
         }
     }
 
+
+    /// <summary>
+    /// Centers the function key buttons in the status bar, keeping clear of the item counts on the
+    /// left and the view buttons on the right.
+    /// </summary>
+    private void LayoutFunctionKeyBar()
+    {
+        if (!_functionKeyBar.Visible || _statusBarPanel.Width <= 0)
+        {
+            return;
+        }
+
+        int height = Math.Max(16, _statusBarPanel.Height - 4);
+        int width = _functionKeyBar.PreferredBarWidth;
+        int minLeft = _statusLeftContentRight + 12;
+        int maxRight = (_statusDetailsBtnBounds.Width > 0 ? _statusDetailsBtnBounds.Left : _statusBarPanel.Width - 70) - 12;
+
+        int x = Math.Max(minLeft, (_statusBarPanel.Width - width) / 2);
+        int available = Math.Max(0, maxRight - x);
+        Rectangle bounds = new(x, (_statusBarPanel.Height - height) / 2 + 1, Math.Min(width, available), height);
+
+        if (_functionKeyBar.Bounds != bounds)
+        {
+            _functionKeyBar.Bounds = bounds;
+        }
+    }
 
     private TabbedExplorerPane OtherPane(TabbedExplorerPane pane) =>
         pane == _leftFilesPane ? _rightFilesPane : _leftFilesPane;

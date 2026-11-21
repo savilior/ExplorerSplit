@@ -288,13 +288,62 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
     public void NavigateRelative(uint sbspFlag)
     {
+        // Going up / back / forward: the shell re-selects the item we came from, so keep that.
+        _nextNavigationRestoresSelection =
+            (sbspFlag & (ShellBrowserInterop.SBSP_PARENT | ShellBrowserInterop.SBSP_NAVIGATEBACK | ShellBrowserInterop.SBSP_NAVIGATEFORWARD)) != 0;
         _browser?.BrowseToIDList(IntPtr.Zero, sbspFlag);
+    }
+
+    private bool _nextNavigationRestoresSelection;
+
+    /// <summary>
+    /// True when the last completed navigation was up/back/forward, where the shell restores the
+    /// selection itself. False for entering a folder (double-click, Enter, F3, address bar, ...).
+    /// </summary>
+    public bool LastNavigationRestoresSelection { get; private set; }
+
+    /// <summary>
+    /// Puts the cursor (and selection) on the first item once the folder has enumerated, unless
+    /// something is already selected. Used in split mode so a freshly entered folder is keyboard-ready.
+    /// </summary>
+    public async void SelectFirstItemWhenReady()
+    {
+        int[] delays = { 0, 60, 120, 250, 500, 900 };
+        foreach (int delay in delays)
+        {
+            if (delay > 0)
+            {
+                await Task.Delay(delay);
+            }
+
+            if (_disposed || _browser is null)
+            {
+                return;
+            }
+
+            if (GetSelectedItemCount() > 0)
+            {
+                return;
+            }
+
+            bool hasItems = false;
+            WithFolderView2(folderView2 =>
+                hasItems = folderView2.ItemCount(0x0002 /* SVGIO_ALLVIEW */, out int count) == 0 && count > 0);
+
+            if (hasItems)
+            {
+                FocusEdgeItem(last: false);
+                return;
+            }
+        }
     }
 
     /// <summary>True when the current folder has a parent to go up to (used for the [..] row).</summary>
     public bool CanNavigateUp =>
         !string.IsNullOrWhiteSpace(ParsingPath) &&
-        !string.Equals(ParsingPath, ExplorerDetector.HomeShellGuid, StringComparison.OrdinalIgnoreCase) &&
+        // Home (Quick access) is the top of the navigation tree; its parsing name can appear as
+        // "::{GUID}", "shell:::{GUID}" or with different casing, so match on the GUID itself.
+        ParsingPath.IndexOf(ExplorerDetector.HomeShellGuid.TrimStart(':'), StringComparison.OrdinalIgnoreCase) < 0 &&
         !ParsingPath.StartsWith("search-ms:", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The view index of the item with keyboard focus, or -1.</summary>
@@ -1435,6 +1484,8 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
                         }
 
                         SyncRectForced();
+                        LastNavigationRestoresSelection = _nextNavigationRestoresSelection;
+                        _nextNavigationRestoresSelection = false;
                         NavigationCompleted?.Invoke(this);
                         _ = DelayedSyncRectAsync();
                     }

@@ -17,6 +17,7 @@ internal sealed class TabbedExplorerPane : Panel
     public event Action<TabbedExplorerPane>? LastTabCloseRequested;
     public event Action<TabbedExplorerPane>? ParentRowActivated;
     public event Action<TabbedExplorerPane>? ParentRowClicked;
+    public event Action<TabbedExplorerPane, ExplorerTabInstance>? ActiveTabNavigated;
 
     public TabbedExplorerPane(string paneName, bool isDarkMode)
     {
@@ -339,6 +340,11 @@ internal sealed class TabbedExplorerPane : Panel
             // A new folder starts with the cursor in the file list (the shell selects the folder we came from)
             _parentRow.IsCursorOn = false;
             UpdateParentRowVisibility();
+        }
+
+        if (tab == ActiveTab)
+        {
+            ActiveTabNavigated?.Invoke(this, tab);
         }
 
         TabsChanged?.Invoke(this);

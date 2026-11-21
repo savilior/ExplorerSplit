@@ -36,6 +36,8 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
     private readonly TextBox _searchTextBox;
     private readonly Panel _statusBarPanel;
     private readonly FunctionKeyBar _functionKeyBar;
+    private int _statusLeftContentRight;
+    private Rectangle _appIconBounds;
     private readonly System.Windows.Forms.Timer _statusTimer;
 
     private readonly ToolTip _toolTip;
@@ -132,7 +134,9 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         Text = "File Explorer";
         Icon = _windowIcon;
         FormBorderStyle = FormBorderStyle.Sizable;
-        ControlBox = false;
+        // Keep WS_SYSMENU so the window has a native system menu (app icon click, Alt+Space, About).
+        // The caption itself is custom-drawn; WM_NCCALCSIZE removes the native title bar.
+        ControlBox = true;
         Padding = Padding.Empty;
         BackColor = _surfaceBg;
         ForeColor = _textColor;
@@ -455,8 +459,10 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         };
         _statusBarPanel.MouseDown += OnStatusBarMouseDown;
 
-        // Total Commander style F3..F8 bar, shown above the status bar in split mode
-        _functionKeyBar = new FunctionKeyBar(_isDarkMode) { Visible = false };
+        // Total Commander style F3..F8 buttons, centered inside the status bar in split mode
+        _functionKeyBar = new FunctionKeyBar(_isDarkMode, _surfaceBg) { Visible = false };
+        _statusBarPanel.Controls.Add(_functionKeyBar);
+        _statusBarPanel.Resize += (_, _) => LayoutFunctionKeyBar();
         _functionKeyBar.FunctionKeyClicked += key =>
         {
             RunCommanderFunctionKey(key, Keys.None);
@@ -519,6 +525,8 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         _rightFilesPane.ParentRowActivated += GoUpFromParentRow;
         _leftFilesPane.ParentRowClicked += OnParentRowClicked;
         _rightFilesPane.ParentRowClicked += OnParentRowClicked;
+        _leftFilesPane.ActiveTabNavigated += OnActiveTabNavigated;
+        _rightFilesPane.ActiveTabNavigated += OnActiveTabNavigated;
 
         _previewPane = new PreviewPaneControl(_isDarkMode);
 
@@ -528,7 +536,6 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
         Controls.Add(_mainSplit);
         Controls.Add(_previewPane);
-        Controls.Add(_functionKeyBar);
         Controls.Add(_statusBarPanel);
         Controls.Add(commandBottomBorder);
         Controls.Add(commandBarRow);
@@ -564,6 +571,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        AddAboutToSystemMenu();
 
         try
         {
@@ -653,6 +661,12 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
     protected override void WndProc(ref Message m)
     {
+        if (m.Msg == WmSysCommand && (m.WParam.ToInt64() & 0xFFF0) == SysMenuAboutId)
+        {
+            ShowAboutDialog();
+            return;
+        }
+
         if (m.Msg == NativeMethods.WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
         {
             NativeMethods.NCCALCSIZE_PARAMS ncParams =
@@ -771,6 +785,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         // Draw App Icon and Name ("Explorer2") on the left side of the title bar above the Left Source Pane
         int iconY = (barH - 18) / 2;
         g.DrawImage(_titleAppIcon, new Rectangle(12, iconY, 18, 18));
+        _appIconBounds = new Rectangle(6, 0, 30, barH);
 
         int brandMaxRight = Math.Max(40, leftZoneStartX - 10);
         if (brandMaxRight > 42)
@@ -1075,6 +1090,13 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
     private void OnTitleTabBarMouseDown(object? sender, MouseEventArgs e)
     {
+        if (e.Button == MouseButtons.Left && _appIconBounds.Contains(e.Location))
+        {
+            // Like a native window: clicking the app icon opens the window (system) menu
+            ShowSystemMenu(_titleTabBar.PointToScreen(new Point(_appIconBounds.Left, _appIconBounds.Bottom)));
+            return;
+        }
+
         if (e.Button == MouseButtons.Left)
         {
             if (_minCaptionBounds.Contains(e.Location))
@@ -1934,6 +1956,9 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
         DrawStatusViewToggleButton(g, _statusDetailsBtnBounds, isDetailsActive, _hoveredStatusViewBtn == 1, isDetailsIcon: true);
         DrawStatusViewToggleButton(g, _statusIconsBtnBounds, isIconsActive, _hoveredStatusViewBtn == 2, isDetailsIcon: false);
+
+        _statusLeftContentRight = currentX;
+        LayoutFunctionKeyBar();
     }
 
     private void DrawStatusViewToggleButton(Graphics g, Rectangle bounds, bool isActive, bool isHovered, bool isDetailsIcon)
