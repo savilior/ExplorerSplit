@@ -29,3 +29,7 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 backups/
+
+# Local session handoff notes (contain machine-specific paths)
+docs/HANDOFF.md
+CLAUDE_HANDOFF.md
