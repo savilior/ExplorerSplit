@@ -11,6 +11,54 @@ internal readonly record struct FolderStatusInfo(
     long SelectedSizeBytes,
     bool HasSelectedFileSize);
 
+/// <summary>
+/// Site for the hosted ExplorerBrowser: hands it an ICommDlgBrowser so the host can handle the
+/// view's default command (double-click / Enter on items).
+/// </summary>
+[ComVisible(true)]
+[ClassInterface(ClassInterfaceType.None)]
+internal sealed class ExplorerBrowserSite : ShellBrowserInterop.IServiceProvider, ShellBrowserInterop.ICommDlgBrowser
+{
+    private const int S_OK = 0;
+    private const int S_FALSE = 1;
+    private const int E_NOINTERFACE = unchecked((int)0x80004002);
+
+    private readonly Func<bool> _onDefaultCommand;
+
+    public ExplorerBrowserSite(Func<bool> onDefaultCommand) => _onDefaultCommand = onDefaultCommand;
+
+    public int QueryService(ref Guid guidService, ref Guid riid, out IntPtr ppvObject)
+    {
+        // The view asks with the ICommDlgBrowser IID as the service id; the docs name SID_SExplorerBrowserFrame
+        if ((guidService == ShellBrowserInterop.IidICommDlgBrowser || guidService == ShellBrowserInterop.SidSExplorerBrowserFrame) &&
+            riid == ShellBrowserInterop.IidICommDlgBrowser)
+        {
+            ppvObject = Marshal.GetComInterfaceForObject(this, typeof(ShellBrowserInterop.ICommDlgBrowser));
+            return S_OK;
+        }
+
+        ppvObject = IntPtr.Zero;
+        return E_NOINTERFACE;
+    }
+
+    // S_OK = handled here; S_FALSE = let the view run its default action
+    public int OnDefaultCommand(IntPtr ppshv)
+    {
+        try
+        {
+            return _onDefaultCommand() ? S_OK : S_FALSE;
+        }
+        catch
+        {
+            return S_FALSE;
+        }
+    }
+
+    public int OnStateChange(IntPtr ppshv, uint uChange) => S_OK;
+
+    public int IncludeObject(IntPtr ppshv, IntPtr pidl) => S_OK; // show every item
+}
+
 [ComVisible(true)]
 internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowserEvents, IDisposable
 {
@@ -114,6 +162,12 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
             0,
             Math.Max(1, HostPanel.Width),
             Math.Max(1, HostPanel.Height));
+
+        // The site must be set before Initialize: the browser looks up its services then.
+        if (_browser is ShellBrowserInterop.IObjectWithSite withSite)
+        {
+            withSite.SetSite(new ExplorerBrowserSite(OpenSelectedFilesLikeExplorer));
+        }
 
         int hr = _browser.Initialize(HostPanel.Handle, ref rc, ref _folderSettings);
         if (hr != 0)
@@ -1266,6 +1320,45 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
     }
 
     /// <summary>Returns the file-system paths of the selected items (non-file-system items are skipped).</summary>
+    /// <summary>
+    /// Default command (double-click / Enter) on selected files: open them through explorer.exe,
+    /// as File Explorer does. Apps that check who launched them (e.g. Foxit's "opened by an app
+    /// without a valid signature" warning) then see the signed Windows shell, not Explorer2.exe.
+    /// Folders, shortcuts and non-file items return false so the view handles them as before.
+    /// </summary>
+    private bool OpenSelectedFilesLikeExplorer()
+    {
+        List<string> paths = GetSelectedItemPaths();
+        if (paths.Count == 0 || paths.Count != GetSelectedItemCount())
+        {
+            return false; // nothing selected, or items without a file-system path
+        }
+
+        foreach (string path in paths)
+        {
+            string ext = Path.GetExtension(path);
+            if (!File.Exists(path) ||
+                ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".url", StringComparison.OrdinalIgnoreCase) ||
+                ext.Equals(".zip", StringComparison.OrdinalIgnoreCase)) // zip folders browse in place
+            {
+                return false;
+            }
+        }
+
+        string explorer = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+        foreach (string path in paths)
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(explorer, $"\"{path}\"")
+            {
+                UseShellExecute = false,
+                WorkingDirectory = Path.GetDirectoryName(path) ?? string.Empty
+            });
+        }
+
+        return true;
+    }
+
     public List<string> GetSelectedItemPaths(int maxItems = int.MaxValue) =>
         GetItemPaths(ShellBrowserInterop.SVGIO_SELECTION, maxItems);
 
@@ -1978,6 +2071,11 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
             {
                 _browser.Unadvise(_eventsCookie);
                 _eventsCookie = 0;
+            }
+
+            if (_browser is ShellBrowserInterop.IObjectWithSite withSite)
+            {
+                withSite.SetSite(null);
             }
 
             _browser.Destroy();

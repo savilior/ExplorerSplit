@@ -418,6 +418,36 @@ internal static class ShellBrowserInterop
         int GetSite(ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object? ppvSite);
     }
 
+    // The ExplorerBrowser asks its site (IObjectWithSite.SetSite) for SID_SExplorerBrowserFrame /
+    // ICommDlgBrowser, which lets the host handle the view's default command (double-click / Enter).
+    internal static readonly Guid SidSExplorerBrowserFrame = new("711B2CFD-93D1-422B-BDF4-69BE923F2449");
+    internal static readonly Guid IidICommDlgBrowser = new("000214F1-0000-0000-C000-000000000046");
+
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("6D5140C1-7436-11CE-8034-00AA006009FA")]
+    internal interface IServiceProvider
+    {
+        [PreserveSig]
+        int QueryService(ref Guid guidService, ref Guid riid, out IntPtr ppvObject);
+    }
+
+    // Vtable order matches shobjidl_core.h exactly.
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("000214F1-0000-0000-C000-000000000046")]
+    internal interface ICommDlgBrowser
+    {
+        [PreserveSig]
+        int OnDefaultCommand(IntPtr ppshv);
+
+        [PreserveSig]
+        int OnStateChange(IntPtr ppshv, uint uChange);
+
+        [PreserveSig]
+        int IncludeObject(IntPtr ppshv, IntPtr pidl);
+    }
+
     [ComImport]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     [Guid("361BBDC7-E6EE-4E13-BE58-58E2240C810F")]
