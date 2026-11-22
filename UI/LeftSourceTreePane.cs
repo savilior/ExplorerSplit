@@ -196,6 +196,30 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             return;
         }
 
+        // The folder can be in the tree more than once (a pinned folder is also under OneDrive or
+        // This PC). Keep the item the user clicked; otherwise prefer the pinned root, as File
+        // Explorer does. Selecting by path would expand OneDrive down to its copy.
+        if (SelectedItemIs(_highlightPath))
+        {
+            return;
+        }
+
+        int pinned = _pinnedRoots.FindIndex(r => SameFolder(r.Path, _highlightPath));
+        if (pinned >= 0 && _pinnedRoots[pinned].Item != IntPtr.Zero && _sysTreeHwnd != IntPtr.Zero)
+        {
+            _syncingSelection = true;
+            try
+            {
+                NativeMethods.SendMessage(_sysTreeHwnd, TVM_SELECTITEM, new IntPtr(TVGN_CARET), _pinnedRoots[pinned].Item);
+            }
+            finally
+            {
+                _syncingSelection = false;
+            }
+
+            return;
+        }
+
         Guid iid = ShellBrowserInterop.IidIShellItem;
         if (ShellBrowserInterop.SHCreateItemFromParsingName(
                 _highlightPath, IntPtr.Zero, ref iid, out ShellBrowserInterop.IShellItem? item) != 0 ||
@@ -231,6 +255,40 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         {
             _syncingSelection = false;
             Marshal.ReleaseComObject(item);
+        }
+    }
+
+    private static bool SameFolder(string a, string b) =>
+        string.Equals(a.TrimEnd('\\'), b.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True when the tree's selected item is the folder <paramref name="path"/>.</summary>
+    private bool SelectedItemIs(string path)
+    {
+        if (_nstc is null || _nstc.GetSelectedItems(out ShellBrowserInterop.IShellItemArray? array) != 0 || array is null)
+        {
+            return false;
+        }
+
+        ShellBrowserInterop.IShellItem? item = null;
+        try
+        {
+            return array.GetCount(out uint count) == 0 && count == 1 &&
+                   array.GetItemAt(0, out item) == 0 && item is not null &&
+                   item.GetDisplayName(0x80028000 /* SIGDN_DESKTOPABSOLUTEPARSING */, out string? selected) == 0 &&
+                   selected is not null && SameFolder(selected, path);
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            if (item is not null)
+            {
+                Marshal.ReleaseComObject(item);
+            }
+
+            Marshal.ReleaseComObject(array);
         }
     }
 
@@ -993,6 +1051,7 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             DestroyTreeControl();
         }
 
+        _pinFont?.Dispose();
         base.Dispose(disposing);
     }
 
@@ -1035,6 +1094,71 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         finally
         {
             Marshal.FreeHGlobal(ptr);
+        }
+    }
+
+    private Font? _pinFont;
+
+    [DllImport("gdi32.dll")]
+    private static extern uint GetPixel(IntPtr hdc, int x, int y);
+
+    /// <summary>The pin icon File Explorer shows at the right of pinned Quick access folders.</summary>
+    private void DrawPinIcons()
+    {
+        if (_sysTreeHwnd == IntPtr.Zero || _pinnedRoots.Count == 0 ||
+            !NativeMethods.GetClientRect(_sysTreeHwnd, out NativeMethods.RECT clientRect) || clientRect.Width <= 60)
+        {
+            return;
+        }
+
+        if (_pinFont is null)
+        {
+            using Font probe = new("Segoe Fluent Icons", 8f);
+            _pinFont = probe.Name == "Segoe Fluent Icons" ? new Font("Segoe Fluent Icons", 8f) : new Font("Segoe MDL2 Assets", 8f);
+        }
+
+        Color color = _isDarkMode ? Color.FromArgb(160, 160, 166) : Color.FromArgb(110, 110, 116);
+        using Graphics g = Graphics.FromHwnd(_sysTreeHwnd);
+        IntPtr buffer = Marshal.AllocHGlobal(Math.Max(Marshal.SizeOf<NativeMethods.RECT>(), IntPtr.Size * 2));
+        try
+        {
+            foreach ((_, _, IntPtr item) in _pinnedRoots)
+            {
+                Marshal.WriteIntPtr(buffer, item);
+                if (item == IntPtr.Zero || NativeMethods.SendMessage(_sysTreeHwnd, TVM_GETITEMRECT, IntPtr.Zero, buffer) == IntPtr.Zero)
+                {
+                    continue; // scrolled out of view
+                }
+
+                NativeMethods.RECT rect = Marshal.PtrToStructure<NativeMethods.RECT>(buffer);
+                Rectangle glyph = new(clientRect.Width - 30, rect.Top, 20, rect.Bottom - rect.Top);
+
+                // A long name stops before the pin: cover it with the row's own background
+                // (sampled at the row's right end, so hover and selection colors are kept).
+                IntPtr hdc = g.GetHdc();
+                uint pixel;
+                try
+                {
+                    pixel = GetPixel(hdc, clientRect.Width - 8, (rect.Top + rect.Bottom) / 2);
+                }
+                finally
+                {
+                    g.ReleaseHdc(hdc);
+                }
+
+                if (pixel != 0xFFFFFFFF) // CLR_INVALID
+                {
+                    using SolidBrush cover = new(ColorTranslator.FromWin32((int)pixel));
+                    g.FillRectangle(cover, new Rectangle(glyph.Left - 6, rect.Top + 3, glyph.Right + 2 - (glyph.Left - 6), rect.Bottom - rect.Top - 6));
+                }
+
+                TextRenderer.DrawText(g, "", _pinFont, glyph, color,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
         }
     }
 
@@ -1111,6 +1235,7 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             {
                 _owner.DrawGroupDividerAboveItem(_owner._firstPinnedItem);
                 _owner.DrawGroupDividerAboveItem(_owner._thisPcItem);
+                _owner.DrawPinIcons();
             }
         }
     }
