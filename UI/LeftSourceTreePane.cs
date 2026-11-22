@@ -1152,7 +1152,7 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
                     g.FillRectangle(cover, new Rectangle(glyph.Left - 6, rect.Top + 3, glyph.Right + 2 - (glyph.Left - 6), rect.Bottom - rect.Top - 6));
                 }
 
-                TextRenderer.DrawText(g, "", _pinFont, glyph, color,
+                TextRenderer.DrawText(g, "", _pinFont, glyph, color, // PinFill, as File Explorer
                     TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
             }
         }
