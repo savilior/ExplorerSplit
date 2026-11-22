@@ -4,6 +4,12 @@ A Windows 11 File Explorer replacement with **tabs, a side-by-side split view an
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-blue) ![.NET](https://img.shields.io/badge/.NET-8.0-purple) ![License](https://img.shields.io/badge/license-MIT-green)
 
+## Why Explorer2
+
+Explorer2 looks and works like the Windows File Explorer you already know: the same file views, menus, search and shortcuts, plus a few enhancements.
+
+The main difference is **Split mode**: two file panes side by side in one window. Copying or moving files between two folders no longer means opening a second File Explorer window and arranging the two windows next to each other. Open both folders in one window and drag files across, or press **F5** to copy and **F6** to move to the other pane.
+
 ## Features
 
 - **Native file views** — each tab hosts the real Windows shell view, not a re-implementation.
@@ -13,6 +19,7 @@ A Windows 11 File Explorer replacement with **tabs, a side-by-side split view an
 - **F3 quick viewer** (like Total Commander's Lister) — native previews for PDF and Office files, images, text (UTF-8 / UTF-16 / ANSI) and hex.
 - **Preview pane** using the registered Windows preview handlers (PDF, Word, Excel, PowerPoint, mail, …).
 - **Native Share sheet**, Sort / Group by / View menus, breadcrumb address bar.
+- **See more (…) menu like File Explorer's** — Undo / Redo, Pin to Quick access, Compress to ZIP file, Add to favorites, Copy path, selection commands, Properties and Options; on **This PC** also Map / Disconnect network drive, Add a network location and Connect to a media server. Explorer2 adds Open in Terminal and, in split mode, Sync other pane to this folder.
 - **Native search in the active pane** — the same query engine as File Explorer (names, properties, `kind:`, `date:`, `size:` ...), updated as you type, with the **Search options** menu (Current folder / All subfolders, Date modified, Kind, Size, Other properties, Advanced options) and **Close search**. Advanced options are File Explorer's own settings; File contents applies at once, System files and Zipped folders after Explorer2 restarts.
 - **Optional default-Explorer replacement** — open folders and **Win+E** in Explorer2.
 - **Tray app** — runs in the background, opens new windows instantly, optional start with Windows.

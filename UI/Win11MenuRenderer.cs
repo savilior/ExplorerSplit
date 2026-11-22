@@ -23,7 +23,10 @@ internal sealed class Win11MenuRenderer : ToolStripProfessionalRenderer
         _textColor = isDarkMode ? Color.FromArgb(244, 244, 248) : Color.FromArgb(24, 24, 28);
         _disabledTextColor = isDarkMode ? Color.FromArgb(130, 130, 140) : Color.FromArgb(145, 145, 155);
         _separatorColor = isDarkMode ? Color.FromArgb(62, 62, 70) : Color.FromArgb(224, 224, 230);
+        _iconAccentColor = isDarkMode ? Color.FromArgb(96, 205, 255) : Color.FromArgb(0, 103, 192);
     }
+
+    private readonly Color _iconAccentColor;
 
     public static ContextMenuStrip CreateMenu(bool isDarkMode, Font font)
     {
@@ -79,6 +82,37 @@ internal sealed class Win11MenuRenderer : ToolStripProfessionalRenderer
 
         return item;
     }
+
+    /// <summary>
+    /// A menu item with an icon drawn in the left margin, like File Explorer's command bar menus.
+    /// The icon is drawn with (graphics, bounds, text color, accent color).
+    /// </summary>
+    public static ToolStripMenuItem CreateIconMenuItem(
+        string text,
+        bool isDarkMode,
+        Action<Graphics, Rectangle, Color, Color> drawIcon,
+        EventHandler? onClick = null,
+        string? shortcutDisplay = null)
+    {
+        ToolStripMenuItem item = CreateMenuItem(text, isDarkMode, onClick, shortcutDisplay: shortcutDisplay);
+        item.Tag = new MenuIcon(drawIcon);
+        return item;
+    }
+
+    /// <summary>An icon drawn from a Segoe Fluent Icons glyph (falls back to Segoe MDL2 Assets).</summary>
+    public static Action<Graphics, Rectangle, Color, Color> Glyph(string glyph, bool accent = false) =>
+        (g, r, text, accentColor) => DrawGlyph(g, r, glyph, accent ? accentColor : text);
+
+    public static void DrawGlyph(Graphics g, Rectangle r, string glyph, Color color)
+    {
+        using Font font = new("Segoe Fluent Icons", 11f, FontStyle.Regular, GraphicsUnit.Point);
+        using Font fallback = new("Segoe MDL2 Assets", 11f, FontStyle.Regular, GraphicsUnit.Point);
+        Font use = font.Name.Equals("Segoe Fluent Icons", StringComparison.OrdinalIgnoreCase) ? font : fallback;
+        TextRenderer.DrawText(g, glyph, use, r, color,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+    }
+
+    private sealed record MenuIcon(Action<Graphics, Rectangle, Color, Color> Draw);
 
     private static void ApplyRoundedCornersOnHandle(ToolStripDropDown dropDown)
     {
@@ -153,6 +187,16 @@ internal sealed class Win11MenuRenderer : ToolStripProfessionalRenderer
             e.TextRectangle = new Rectangle(r.X, 0, r.Width, e.Item.Height);
             e.TextFormat = (e.TextFormat & ~(TextFormatFlags.Top | TextFormatFlags.Bottom)) |
                            TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine;
+
+            if (e.Item.Tag is MenuIcon icon && e.TextDirection == ToolStripTextDirection.Horizontal)
+            {
+                // Icons sit in the check margin, left of the text (as in File Explorer's menus).
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                Rectangle iconRect = new(r.X - 26, 0, 20, e.Item.Height);
+                Color iconText = e.Item.Enabled ? _textColor : _disabledTextColor;
+                Color iconAccent = e.Item.Enabled ? _iconAccentColor : _disabledTextColor;
+                icon.Draw(e.Graphics, iconRect, iconText, iconAccent);
+            }
         }
 
         base.OnRenderItemText(e);

@@ -1696,7 +1696,21 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
     /// WM_COMMAND FCIDM_SHVIEW_UNDO, so focus the file list and send the native Ctrl+Z accelerator
     /// once the invoking menu has closed.
     /// </summary>
-    public void UndoLastAction()
+    public void UndoLastAction() => SendViewAccelerator(Keys.Z);
+
+    /// <summary>Redo the last undone shell file operation (Ctrl+Y in the view).</summary>
+    public void RedoLastAction() => SendViewAccelerator(Keys.Y);
+
+    /// <summary>
+    /// Cut the selection the way Ctrl+X does. Invoking the "cut" verb on the selection's context
+    /// menu puts the files on the clipboard but bypasses the view, so the items are not dimmed;
+    /// the view's own Ctrl+X handler does both.
+    /// </summary>
+    public void CutSelection() => SendViewAccelerator(Keys.X);
+
+    // Sends Ctrl+<key> to the file list once the invoking button or menu is done. Keys go by
+    // virtual-key code so the accelerator works under any keyboard layout.
+    private void SendViewAccelerator(Keys key)
     {
         if (_browser is null || _disposed || !HostPanel.IsHandleCreated)
         {
@@ -1711,8 +1725,90 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
             }
 
             FocusFileListView();
-            SendKeys.SendWait("^z");
+            const byte VK_CONTROL = 0x11;
+            NativeMethods.keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
+            NativeMethods.keybd_event((byte)key, 0, 0, UIntPtr.Zero);
+            NativeMethods.keybd_event((byte)key, 0, NativeMethods.KEYEVENTF_KEYUP, UIntPtr.Zero);
+            NativeMethods.keybd_event(VK_CONTROL, 0, NativeMethods.KEYEVENTF_KEYUP, UIntPtr.Zero);
         });
+    }
+
+    /// <summary>
+    /// "Compress to ZIP file": zips the selected files and folders into a new .zip next to them,
+    /// named after the first item (as File Explorer does).
+    /// </summary>
+    public async void CompressSelectionToZip()
+    {
+        List<string> paths = GetSelectedItemPaths();
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        string folder = Path.GetDirectoryName(paths[0]) ?? string.Empty;
+        string baseName = Directory.Exists(paths[0])
+            ? Path.GetFileName(paths[0].TrimEnd(Path.DirectorySeparatorChar))
+            : Path.GetFileNameWithoutExtension(paths[0]);
+        string zipPath = Path.Combine(folder, baseName + ".zip");
+        for (int n = 2; File.Exists(zipPath) || Directory.Exists(zipPath); n++)
+        {
+            zipPath = Path.Combine(folder, $"{baseName} ({n}).zip");
+        }
+
+        try
+        {
+            await Task.Run(() => WriteZip(zipPath, paths));
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                File.Delete(zipPath);
+            }
+            catch
+            {
+                // Leave a partial file rather than hide the original error
+            }
+
+            MessageBox.Show(HostPanel.FindForm(), $"Could not create the ZIP file.\n\n{ex.Message}", "Compress to ZIP file",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        if (!_disposed)
+        {
+            RefreshView();
+        }
+    }
+
+    private static void WriteZip(string zipPath, List<string> paths)
+    {
+        using FileStream stream = new(zipPath, FileMode.CreateNew);
+        using System.IO.Compression.ZipArchive zip = new(stream, System.IO.Compression.ZipArchiveMode.Create);
+        foreach (string path in paths)
+        {
+            if (Directory.Exists(path))
+            {
+                string root = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar));
+                zip.CreateEntry(root + "/");
+                foreach (string entry in Directory.EnumerateFileSystemEntries(path, "*", SearchOption.AllDirectories))
+                {
+                    string relative = root + "/" + Path.GetRelativePath(path, entry).Replace('\\', '/');
+                    if (Directory.Exists(entry))
+                    {
+                        zip.CreateEntry(relative + "/");
+                    }
+                    else
+                    {
+                        System.IO.Compression.ZipFileExtensions.CreateEntryFromFile(zip, entry, relative);
+                    }
+                }
+            }
+            else if (File.Exists(path))
+            {
+                System.IO.Compression.ZipFileExtensions.CreateEntryFromFile(zip, path, Path.GetFileName(path));
+            }
+        }
     }
 
     private enum SelectionChange

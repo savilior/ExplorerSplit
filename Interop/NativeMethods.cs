@@ -236,6 +236,22 @@ internal static class NativeMethods
         public RECT rcNormalPosition;
     }
 
+    internal const uint KEYEVENTF_KEYUP = 0x0002;
+
+    // Synthesizes key presses by virtual-key code, so they work under any keyboard layout
+    // (SendKeys maps characters through the active layout and drops Ctrl+X under Hebrew).
+    [DllImport("user32.dll")]
+    internal static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    internal const uint RESOURCETYPE_DISK = 0x00000001;
+
+    // "Map network drive" / "Disconnect network drive" dialogs (This PC's See more menu).
+    [DllImport("mpr.dll")]
+    internal static extern int WNetConnectionDialog(IntPtr hwnd, uint dwType);
+
+    [DllImport("mpr.dll")]
+    internal static extern int WNetDisconnectDialog(IntPtr hwnd, uint dwType);
+
     [DllImport("user32.dll")]
     internal static extern IntPtr SetWinEventHook(
         uint eventMin,

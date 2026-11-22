@@ -434,7 +434,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
         Control newDropdownBtn = CreateCommandBarDropdownButton("New", 78, DrawNewPlusCircleIcon, ShowNewMenu);
         Control cutCmdBtn = CreateVectorIconButton("Cut (Ctrl+X)", 36, 32, DrawCutScissorsIcon, () =>
-            _selectedPane?.ActiveTab?.InvokeShellVerb("cut"));
+            _selectedPane?.ActiveTab?.CutSelection());
         Control copyCmdBtn = CreateVectorIconButton("Copy (Ctrl+C)", 36, 32, DrawCopyPagesIcon, () =>
             _selectedPane?.ActiveTab?.InvokeShellVerb("copy"));
         Control pasteCmdBtn = CreateVectorIconButton("Paste (Ctrl+V)", 36, 32, DrawPasteClipboardIcon, () =>
@@ -2384,21 +2384,172 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         });
     }
 
+    private const string ThisPcPath = "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}";
+    private const string NetworkPath = "::{F02C1A0D-BE21-4350-88B0-7367FC96EF3C}";
+
+    /// <summary>
+    /// The command bar's "See more" (...) menu, laid out like File Explorer's: its items depend on
+    /// the location (This PC adds the network drive commands) and on the selection.
+    /// </summary>
     private void ShowMoreMenu(Control anchor)
     {
+        ExplorerTabInstance? tab = _selectedPane?.ActiveTab;
+        if (tab is null)
+        {
+            return;
+        }
+
+        string folder = tab.FolderPath ?? string.Empty;
+        bool isThisPc = folder.Equals(ThisPcPath, StringComparison.OrdinalIgnoreCase);
+        int selectedCount = tab.GetSelectedItemCount();
+        List<string> selectedPaths = selectedCount > 0 ? tab.GetSelectedItemPaths() : new List<string>();
+        bool selectionIsFileSystem = selectedCount > 0 && selectedPaths.Count == selectedCount;
+
         ContextMenuStrip menu = Win11MenuRenderer.CreateMenu(_isDarkMode, _uiFont);
-        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Undo", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.UndoLastAction(), shortcutDisplay: "Ctrl+Z"));
+        void Add(string text, Action<Graphics, Rectangle, Color, Color> icon, Action onClick, string? shortcut = null) =>
+            menu.Items.Add(Win11MenuRenderer.CreateIconMenuItem(text, _isDarkMode, icon, (_, _) => onClick(), shortcut));
+
+        Add("Undo", Win11MenuRenderer.Glyph("", accent: true), tab.UndoLastAction, "Ctrl+Z");
+        Add("Redo", Win11MenuRenderer.Glyph("", accent: true), tab.RedoLastAction, "Ctrl+Y");
+
+        if (isThisPc)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            Add("Connect to a media server", Win11MenuRenderer.Glyph(""), () => tab.NavigateToPath(NetworkPath));
+            Add("Add a network location", Win11MenuRenderer.Glyph(""), AddNetworkLocation);
+            Add("Map network drive", Win11MenuRenderer.Glyph(""),
+                () => NativeMethods.WNetConnectionDialog(Handle, NativeMethods.RESOURCETYPE_DISK));
+            Add("Disconnect network drive", Win11MenuRenderer.Glyph(""),
+                () => NativeMethods.WNetDisconnectDialog(Handle, NativeMethods.RESOURCETYPE_DISK));
+        }
+        else if (selectedCount == 0)
+        {
+            if (Directory.Exists(folder))
+            {
+                menu.Items.Add(new ToolStripSeparator());
+                Add("Pin to Quick access", Win11MenuRenderer.Glyph("", accent: true), () => PinFolderToQuickAccess(folder));
+            }
+        }
+        else if (selectionIsFileSystem)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            Add("Compress to ZIP file", Win11MenuRenderer.Glyph(""), tab.CompressSelectionToZip);
+            if (selectedPaths.All(Directory.Exists))
+            {
+                Add("Pin to Quick access", Win11MenuRenderer.Glyph("", accent: true), () => tab.InvokeShellVerb("pintohome"));
+            }
+            else
+            {
+                Add("Add to favorites", Win11MenuRenderer.Glyph("", accent: true), () => tab.InvokeShellVerb("pintohome"));
+            }
+
+            Add("Copy path", Win11MenuRenderer.Glyph(""), () => CopyQuotedPaths(selectedPaths));
+        }
+
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Select all", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.SelectAllItems(), shortcutDisplay: "Ctrl+A"));
-        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Select none", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.SelectNoneItems()));
-        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Invert selection", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.InvertSelection()));
+        Add("Select all", (g, r, text, accent) => DrawSelectionIcon(g, r, accent, text, filled: [true, true, true, true]), tab.SelectAllItems, "Ctrl+A");
+        Add("Select none", (g, r, text, _) => DrawSelectionIcon(g, r, text, text, filled: null), tab.SelectNoneItems);
+        Add("Invert selection", (g, r, text, accent) => DrawSelectionIcon(g, r, accent, text, filled: [false, true, true, false]), tab.InvertSelection);
+
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Properties", _isDarkMode, (_, _) => _selectedPane?.ActiveTab?.InvokeShellVerb("properties"), shortcutDisplay: "Alt+Enter"));
-        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Open in Terminal", _isDarkMode, (_, _) => OpenActiveFolderInTerminal()));
-        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Sync Other Pane to Active Folder", _isDarkMode, (_, _) => SyncInactivePaneToActive()));
+        Add("Properties", Win11MenuRenderer.Glyph(""),
+            () => tab.InvokeShellVerb("properties", onBackground: tab.GetSelectedItemCount() == 0), "Alt+Enter");
+        Add("Options", Win11MenuRenderer.Glyph(""), OpenWindowsFolderOptions);
+
+        // Explorer2's own additions, below the File Explorer commands
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Options", _isDarkMode, (_, _) => OpenWindowsFolderOptions()));
+        Add("Open in Terminal", Win11MenuRenderer.Glyph(""), OpenActiveFolderInTerminal);
+        if (_isSplitEnabled)
+        {
+            Add("Sync other pane to this folder", DrawSplitPaneMenuIcon, SyncInactivePaneToActive);
+        }
+
         menu.Show(anchor, new Point(0, anchor.Height + 2));
+    }
+
+    // Select all / Select none / Invert selection icons as in File Explorer: four squares, the
+    // selected ones filled, inside a dashed selection frame (no frame for Select none).
+    private static void DrawSelectionIcon(Graphics g, Rectangle r, Color fillColor, Color lineColor, bool[]? filled)
+    {
+        float cx = r.X + r.Width / 2f;
+        float cy = r.Y + r.Height / 2f;
+        const float cell = 4.5f;
+        const float gap = 2f;
+        float start = -(cell + gap / 2f);
+
+        if (filled is not null)
+        {
+            using Pen frame = new(Color.FromArgb(150, lineColor), 1f) { DashPattern = [2f, 2f] };
+            g.DrawRectangle(frame, cx - 8f, cy - 8f, 16f, 16f);
+        }
+
+        using SolidBrush fill = new(fillColor);
+        using Pen square = new(lineColor, 1f);
+        for (int i = 0; i < 4; i++)
+        {
+            float x = cx + start + (i % 2) * (cell + gap);
+            float y = cy + start + (i / 2) * (cell + gap);
+            if (filled is not null && filled[i])
+            {
+                g.FillRectangle(fill, x, y, cell, cell);
+            }
+            else
+            {
+                g.DrawRectangle(square, x, y, cell - 1, cell - 1);
+            }
+        }
+    }
+
+    private static void DrawSplitPaneMenuIcon(Graphics g, Rectangle r, Color text, Color accent)
+    {
+        float cx = r.X + r.Width / 2f;
+        float cy = r.Y + r.Height / 2f;
+        using Pen p = new(text, 1.1f);
+        g.DrawRectangle(p, cx - 7, cy - 5.5f, 14, 11);
+        using Pen mid = new(accent, 1.4f);
+        g.DrawLine(mid, cx, cy - 5.5f, cx, cy + 5.5f);
+    }
+
+    private static void PinFolderToQuickAccess(string folder)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(folder) { Verb = "pintohome", UseShellExecute = true });
+        }
+        catch
+        {
+            // Verb not available (e.g. a policy removed Quick access)
+        }
+    }
+
+    private static void AddNetworkLocation()
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("rundll32.exe", "shwebsvc.dll,AddNetPlaceRunDll") { UseShellExecute = false });
+        }
+        catch
+        {
+            // Ignore
+        }
+    }
+
+    // File Explorer's "Copy path": each selected path in quotes, one per line.
+    private static void CopyQuotedPaths(List<string> paths)
+    {
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            Clipboard.SetText(string.Join(Environment.NewLine, paths.Select(p => $"\"{p}\"")));
+        }
+        catch
+        {
+            // Ignore clipboard contention
+        }
     }
 
     // =====================================================================

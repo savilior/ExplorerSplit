@@ -2,6 +2,8 @@
 
 Windows 11 File Explorer replacement (.NET 8 WinForms) hosting native shell views (`IExplorerBrowser`) with tabs, split mode and Total Commander style keys. See `README.md` for features and help.
 
+Purpose: look and work like the native File Explorer (match its menus, icons and behavior), with a few enhancements. The main one is Split mode: two panes in one window, so copying/moving files doesn't need two Explorer windows.
+
 ## Definition of done
 
 - Release build with **0 warnings, 0 errors**:
