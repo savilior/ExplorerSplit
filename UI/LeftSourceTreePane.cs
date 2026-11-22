@@ -970,6 +970,7 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         ref Guid riid,
         out IntPtr ppv)
     {
+        // A menu given here is added to the folder's own menu; the replacement is in OnAfterContextMenu
         ppv = IntPtr.Zero;
         return E_NOTIMPL;
     }
@@ -981,7 +982,120 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         out IntPtr ppv)
     {
         ppv = IntPtr.Zero;
+        try
+        {
+            // A pinned Quick access root gets the Quick access item's own menu (with "Unpin from
+            // Quick access") instead of the folder's, as in File Explorer; other items keep theirs.
+            IntPtr treeItem = ContextMenuTreeItem();
+            int pinned = _pinnedRoots.FindIndex(r => r.Item == treeItem);
+            if (pinned >= 0 && TryGetQuickAccessMenu(_pinnedRoots[pinned].Path, ref riid, out ppv))
+            {
+                return 0;
+            }
+        }
+        catch
+        {
+            ppv = IntPtr.Zero;
+        }
+
         return E_NOTIMPL;
+    }
+
+    /// <summary>The tree item the context menu is for: under the mouse, or the caret (Shift+F10).</summary>
+    private IntPtr ContextMenuTreeItem()
+    {
+        if (_sysTreeHwnd == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        if (NativeMethods.GetCursorPos(out NativeMethods.POINT pt) && NativeMethods.ScreenToClient(_sysTreeHwnd, ref pt) &&
+            NativeMethods.GetClientRect(_sysTreeHwnd, out NativeMethods.RECT client) &&
+            pt.X >= 0 && pt.Y >= 0 && pt.X < client.Width && pt.Y < client.Height)
+        {
+            TVHITTESTINFO ht = new() { pt = pt };
+            IntPtr htPtr = Marshal.AllocHGlobal(Marshal.SizeOf<TVHITTESTINFO>());
+            try
+            {
+                Marshal.StructureToPtr(ht, htPtr, false);
+                NativeMethods.SendMessage(_sysTreeHwnd, TVM_HITTEST, IntPtr.Zero, htPtr);
+                ht = Marshal.PtrToStructure<TVHITTESTINFO>(htPtr);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(htPtr);
+            }
+
+            if (ht.hItem != IntPtr.Zero)
+            {
+                return ht.hItem;
+            }
+        }
+
+        return NativeMethods.SendMessage(_sysTreeHwnd, TVM_GETNEXTITEM, new IntPtr(TVGN_CARET), IntPtr.Zero);
+    }
+
+    /// <summary>Context menu of the Quick access entry for <paramref name="path"/>.</summary>
+    private static bool TryGetQuickAccessMenu(string path, ref Guid riid, out IntPtr ppv)
+    {
+        const uint SIGDN_FILESYSPATH = 0x80058000;
+        const uint SIGDN_DESKTOPABSOLUTEPARSING = 0x80028000;
+        ppv = IntPtr.Zero;
+
+        Guid iidItem = ShellBrowserInterop.IidIShellItem;
+        if (ShellBrowserInterop.SHCreateItemFromParsingName("shell:::{679f85cb-0220-4080-b29b-5540cc05aab6}", IntPtr.Zero,
+                ref iidItem, out ShellBrowserInterop.IShellItem? quickAccess) != 0 || quickAccess is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            Guid bhidEnum = ShellBrowserInterop.BhidEnumItems;
+            Guid iidEnum = ShellBrowserInterop.IidIEnumShellItems;
+            if (quickAccess.BindToHandler(IntPtr.Zero, ref bhidEnum, ref iidEnum, out IntPtr enumPtr) != 0 || enumPtr == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            ShellBrowserInterop.IEnumShellItems items = (ShellBrowserInterop.IEnumShellItems)Marshal.GetObjectForIUnknown(enumPtr);
+            Marshal.Release(enumPtr);
+            try
+            {
+                while (items.Next(1, out ShellBrowserInterop.IShellItem? child, out uint fetched) == 0 && fetched == 1 && child is not null)
+                {
+                    try
+                    {
+                        bool match =
+                            (child.GetDisplayName(SIGDN_FILESYSPATH, out string? fsPath) == 0 && fsPath is not null && SameFolder(fsPath, path)) ||
+                            (child.GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, out string? parsing) == 0 && parsing is not null && SameFolder(parsing, path));
+                        if (match)
+                        {
+                            Guid bhidUi = ShellBrowserInterop.BhidSFUIObject;
+                            return child.BindToHandler(IntPtr.Zero, ref bhidUi, ref riid, out ppv) == 0 && ppv != IntPtr.Zero;
+                        }
+                    }
+                    catch
+                    {
+                        // Skip items without a path
+                    }
+                    finally
+                    {
+                        Marshal.ReleaseComObject(child);
+                    }
+                }
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(items);
+            }
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(quickAccess);
+        }
+
+        return false;
     }
 
     int ShellBrowserInterop.INameSpaceTreeControlEvents.OnBeforeStateImageChange(ShellBrowserInterop.IShellItem psi) => 0;

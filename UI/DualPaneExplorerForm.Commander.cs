@@ -20,14 +20,15 @@ internal sealed partial class DualPaneExplorerForm
     }
 
     /// <summary>
-    /// In split mode, a folder you just entered gets the cursor on its first item, so Enter / Space /
-    /// arrows work immediately (going up, back or forward keeps the shell's own selection).
+    /// A folder you just entered (from the file list, the navigation pane or the address bar) gets
+    /// the cursor on its first item, so Enter / Space / arrows work immediately, in both modes
+    /// (going up, back or forward keeps the shell's own selection).
     /// </summary>
     private void OnActiveTabNavigated(TabbedExplorerPane pane, ExplorerTabInstance tab)
     {
         // Not for search results, and not while the user is typing in the search / address box:
         // putting the cursor on an item would pull keyboard focus out of the text box.
-        if (_isSplitEnabled && !tab.LastNavigationRestoresSelection && !tab.IsShowingSearch &&
+        if (!tab.LastNavigationRestoresSelection && !tab.IsShowingSearch &&
             !IsTextEditControlFocused(NativeMethods.GetFocus()))
         {
             tab.SelectFirstItemWhenReady();

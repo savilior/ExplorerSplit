@@ -571,6 +571,28 @@ internal static class ShellBrowserInterop
         int CollapseAll();
     }
 
+    internal static readonly Guid BhidEnumItems = new("94F60519-2850-4924-AA5A-D15E84868039");
+    internal static readonly Guid BhidSFUIObject = new("3981E225-F559-11D3-8E3A-00C04F6837D5");
+    internal static readonly Guid IidIEnumShellItems = new("70629033-E363-4A28-A567-0DB78006E6D7");
+
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("70629033-E363-4A28-A567-0DB78006E6D7")]
+    internal interface IEnumShellItems
+    {
+        [PreserveSig]
+        int Next(uint celt, [MarshalAs(UnmanagedType.Interface)] out IShellItem? rgelt, out uint pceltFetched);
+
+        [PreserveSig]
+        int Skip(uint celt);
+
+        [PreserveSig]
+        int Reset();
+
+        [PreserveSig]
+        int Clone(out IEnumShellItems ppenum);
+    }
+
     /// <summary>OLE drop target. The data object stays a raw pointer so it can be passed on unchanged.</summary>
     [ComImport]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
