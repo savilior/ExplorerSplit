@@ -1117,7 +1117,8 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             _pinFont = probe.Name == "Segoe Fluent Icons" ? new Font("Segoe Fluent Icons", 8f) : new Font("Segoe MDL2 Assets", 8f);
         }
 
-        Color color = _isDarkMode ? Color.FromArgb(160, 160, 166) : Color.FromArgb(110, 110, 116);
+        // Light: sampled from File Explorer's navigation pane
+        Color color = _isDarkMode ? Color.FromArgb(150, 160, 166) : Color.FromArgb(149, 160, 166);
         using Graphics g = Graphics.FromHwnd(_sysTreeHwnd);
         IntPtr buffer = Marshal.AllocHGlobal(Math.Max(Marshal.SizeOf<NativeMethods.RECT>(), IntPtr.Size * 2));
         try
@@ -1152,8 +1153,13 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
                     g.FillRectangle(cover, new Rectangle(glyph.Left - 6, rect.Top + 3, glyph.Right + 2 - (glyph.Left - 6), rect.Bottom - rect.Top - 6));
                 }
 
-                TextRenderer.DrawText(g, "", _pinFont, glyph, color, // PinFill, as File Explorer
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                // File Explorer's pin: a filled head (PinFill) with the needle of the outline Pin,
+                // smoothed in gray scale (no ClearType color fringes)
+                using SolidBrush pinBrush = new(color);
+                using StringFormat center = new() { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAlias;
+                g.DrawString("", _pinFont, pinBrush, glyph, center);
+                g.DrawString("", _pinFont, pinBrush, glyph, center);
             }
         }
         finally
