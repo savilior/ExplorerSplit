@@ -70,6 +70,7 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
     private long _lastUserInputTick = long.MinValue / 2;
     private const int WmKeyDown = 0x0100;
     private const int WmChar = 0x0102;
+    private const int WmSetFocus = 0x0007;
 
     public event Action<string>? SourceSelected;
 
@@ -114,10 +115,123 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         Controls.Add(rightBorder);
     }
 
+    private const uint NSTCIS_SELECTED = 0x0001;
+    private const uint NSTCIS_SELECTEDNOEXPAND = 0x0010;
+    private const uint TVM_SELECTITEM = 0x110B;
+    private const uint TVGN_CARET = 0x0009;
+
+    private string? _highlightPath;
+    private bool _syncingSelection;
+    private bool _inTreeFocus;
+    private bool _reapplyQueued;
+    private long _reapplyWindowStart;
+    private int _reapplyCount;
+
+    // The tree changes its selection by itself (a tree view selects its first item, Home, when it
+    // gets focus with nothing selected). Put the active folder's highlight back afterwards, unless
+    // the user is working in the tree.
+    private void QueueReapplyHighlight()
+    {
+        if (_reapplyQueued || _disposed || !IsHandleCreated)
+        {
+            return;
+        }
+
+        // Never fight the tree in a loop: at most a few corrections per couple of seconds
+        long now = Environment.TickCount64;
+        if (now - _reapplyWindowStart > 2000)
+        {
+            _reapplyWindowStart = now;
+            _reapplyCount = 0;
+        }
+
+        if (++_reapplyCount > 4)
+        {
+            return;
+        }
+
+        _reapplyQueued = true;
+        BeginInvoke(() =>
+        {
+            _reapplyQueued = false;
+            if (!_disposed && Environment.TickCount64 - _lastUserInputTick > 1000)
+            {
+                ApplyHighlight();
+            }
+        });
+    }
+
+    /// <summary>
+    /// Highlights the active tab's folder in the tree, as File Explorer does. If the folder is not
+    /// shown in the tree nothing is highlighted, unless Folder Options "Expand to open folder" is on;
+    /// then the tree expands down to it. The programmatic selection never navigates.
+    /// </summary>
     public void SyncHighlightToPath(string? currentPath)
     {
-        // Native NamespaceTreeControl manages its own item state; we avoid forcing
-        // tree re-expansion on tab switch so user's expanded tree state stays undisturbed.
+        _highlightPath = currentPath;
+        if (_initialized && _nstc is not null && !_disposed)
+        {
+            ApplyHighlight();
+        }
+    }
+
+    private static bool ExpandToOpenFolder()
+    {
+        try
+        {
+            using Microsoft.Win32.RegistryKey? key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced");
+            return key?.GetValue("NavPaneExpandToCurrentFolder") is int value && value != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void ApplyHighlight()
+    {
+        if (_nstc is null || string.IsNullOrWhiteSpace(_highlightPath))
+        {
+            return;
+        }
+
+        Guid iid = ShellBrowserInterop.IidIShellItem;
+        if (ShellBrowserInterop.SHCreateItemFromParsingName(
+                _highlightPath, IntPtr.Zero, ref iid, out ShellBrowserInterop.IShellItem? item) != 0 ||
+            item is null)
+        {
+            return;
+        }
+
+        _syncingSelection = true;
+        try
+        {
+            bool expand = ExpandToOpenFolder();
+            if (expand)
+            {
+                _nstc.EnsureItemVisible(item);
+            }
+
+            // Selecting an item the tree hasn't loaded expands its parents to reach it, so without
+            // "Expand to open folder" only folders the tree already shows are highlighted.
+            const uint state = NSTCIS_SELECTED | NSTCIS_SELECTEDNOEXPAND;
+            bool shown = expand || _nstc.GetItemState(item, NSTCIS_SELECTED, out _) == 0;
+            if ((!shown || _nstc.SetItemState(item, state, state) != 0) && _sysTreeHwnd != IntPtr.Zero)
+            {
+                // Folder not shown in the tree: clear the highlight rather than leave a wrong one.
+                NativeMethods.SendMessage(_sysTreeHwnd, TVM_SELECTITEM, new IntPtr(TVGN_CARET), IntPtr.Zero);
+            }
+        }
+        catch
+        {
+            // Items the tree cannot resolve are simply not highlighted
+        }
+        finally
+        {
+            _syncingSelection = false;
+            Marshal.ReleaseComObject(item);
+        }
     }
 
     private void EnsureInitialized()
@@ -254,6 +368,9 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
 
         _nstc.TreeAdvise(this, out _eventsCookie);
         SyncTreeBounds();
+
+        // A highlight requested before the tree existed (the window's first folder)
+        ApplyHighlight();
     }
 
     private int CountRootItems()
@@ -544,8 +661,15 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         // The tree also changes its selection on its own (e.g. selecting the first root, Home, when
         // it is created or first focused). Only follow selection changes the user caused with the
         // keyboard or mouse; otherwise a window opened on a folder would jump to Home.
-        if (_disposed || psiaSelection is null || Environment.TickCount64 - _lastUserInputTick > 1000)
+        // SyncHighlightToPath's own selection changes never navigate either.
+        if (_disposed || _syncingSelection || psiaSelection is null)
         {
+            return 0;
+        }
+
+        if (_inTreeFocus || Environment.TickCount64 - _lastUserInputTick > 1000)
+        {
+            QueueReapplyHighlight();
             return 0;
         }
 
@@ -756,6 +880,22 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
                     m.Result = IntPtr.Zero;
                     return;
                 }
+            }
+
+            if (m.Msg == WmSetFocus)
+            {
+                // A selection the tree makes while taking focus is not the user's choice
+                _owner._inTreeFocus = true;
+                try
+                {
+                    base.WndProc(ref m);
+                }
+                finally
+                {
+                    _owner._inTreeFocus = false;
+                }
+
+                return;
             }
 
             base.WndProc(ref m);

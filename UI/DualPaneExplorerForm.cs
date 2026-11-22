@@ -1581,7 +1581,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         _closeSearchBtn.Visible = tab.IsShowingSearch;
 
         Text = $"{tab.Title} — File Explorer";
-        _leftSourceTree.SyncHighlightToPath(tab.DisplayPath);
+        _leftSourceTree.SyncHighlightToPath(tab.FolderPath);
         _titleTabBar.Invalidate();
         RefreshStatusInfo(forceRepaint: true);
     }
