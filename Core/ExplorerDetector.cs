@@ -10,6 +10,59 @@ internal static class ExplorerDetector
 {
     public const string ExplorerClassName = "CabinetWClass";
     public const string HomeShellGuid = "::{f874310e-b6b7-47dc-bc84-b9e6b38f5903}";
+    public const string ThisPcShellGuid = "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}";
+
+    /// <summary>
+    /// Where a new window or tab opens, from File Explorer's Folder Options "Open File Explorer to"
+    /// (HKCU\...\Explorer\Advanced\LaunchTo: 1 = This PC, 2 or unset = Home, 3 = Downloads).
+    /// Read on every call so a change in Folder Options applies to the next window or tab.
+    /// </summary>
+    public static string StartLocation
+    {
+        get
+        {
+            int launchTo = 2;
+            try
+            {
+                using Microsoft.Win32.RegistryKey? key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced");
+                if (key?.GetValue("LaunchTo") is int value)
+                {
+                    launchTo = value;
+                }
+            }
+            catch
+            {
+                // Fall back to Home, File Explorer's default
+            }
+
+            return launchTo switch
+            {
+                1 => ThisPcShellGuid,
+                3 => GetDownloadsPath() ?? HomeShellGuid,
+                _ => HomeShellGuid
+            };
+        }
+    }
+
+    private static string? GetDownloadsPath()
+    {
+        Guid downloads = new("374DE290-123F-4565-9164-39C4925E467B");
+        if (NativeMethods.SHGetKnownFolderPath(ref downloads, 0, IntPtr.Zero, out IntPtr pathPtr) != 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            string? path = Marshal.PtrToStringUni(pathPtr);
+            return Directory.Exists(path) ? path : null;
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(pathPtr);
+        }
+    }
 
     private static readonly Guid SidTopLevelBrowser = new("4C96BE40-915C-11CF-99D3-00AA004AE837");
     private static readonly Guid IidShellBrowser = new("000214E2-0000-0000-C000-000000000046");
@@ -191,7 +244,7 @@ internal static class ExplorerDetector
     {
         if (string.IsNullOrWhiteSpace(path))
         {
-            return $"/n,{HomeShellGuid}";
+            return $"/n,{StartLocation}";
         }
 
         string trimmed = path.Trim().Trim('"');

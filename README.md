@@ -22,6 +22,8 @@ The main difference is **Split mode**: two file panes side by side in one window
 - **See more (…) menu like File Explorer's** — Undo / Redo, Pin to Quick access, Compress to ZIP file, Add to favorites, Copy path, selection commands, Properties and Options; on **This PC** also Map / Disconnect network drive, Add a network location and Connect to a media server. Explorer2 adds Open in Terminal and, in split mode, Sync other pane to this folder.
 - **Native search in the active pane** — the same query engine as File Explorer (names, properties, `kind:`, `date:`, `size:` ...), updated as you type, with the **Search options** menu (Current folder / All subfolders, Date modified, Kind, Size, Other properties, Advanced options) and **Close search**. Advanced options are File Explorer's own settings; File contents applies at once, System files and Zipped folders after Explorer2 restarts.
 - **Optional default-Explorer replacement** — open folders and **Win+E** in Explorer2.
+- **Follows File Explorer's Folder Options** — new windows and tabs open to the *Open File Explorer to* location (Home, This PC or Downloads); hidden files, extensions, check boxes and the other view options come from the native views.
+- **Explorer2 button on File Explorer's title bar** — click the Explorer2 icon on a native File Explorer window to open that folder in Explorer2's split view.
 - **Tray app** — runs in the background, opens new windows instantly, optional start with Windows.
 - Light and dark mode follow the Windows theme.
 

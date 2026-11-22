@@ -111,7 +111,7 @@ internal sealed class SplitManager : IDisposable
 
         string effectiveLeft = !string.IsNullOrWhiteSpace(leftPath)
             ? leftPath
-            : ExplorerDetector.HomeShellGuid;
+            : ExplorerDetector.StartLocation;
         string effectiveRight = !string.IsNullOrWhiteSpace(rightPath)
             ? rightPath
             : ResolveRightPanePath(effectiveLeft);
@@ -162,7 +162,7 @@ internal sealed class SplitManager : IDisposable
 
         if (ExplorerDetector.IsExplorerWindow(hwnd))
         {
-            string leftPath = ExplorerDetector.GetActiveFolderPath(hwnd) ?? ExplorerDetector.HomeShellGuid;
+            string leftPath = ExplorerDetector.GetActiveFolderPath(hwnd) ?? ExplorerDetector.StartLocation;
             string rightPath = ResolveRightPanePath(leftPath);
 
             NativeMethods.RECT vis = DwmHelper.GetVisualRect(hwnd);
@@ -231,7 +231,7 @@ internal sealed class SplitManager : IDisposable
             RightPanePathMode.Home => ExplorerDetector.HomeShellGuid,
             RightPanePathMode.Custom when !string.IsNullOrWhiteSpace(_settings.CustomRightPanePath) =>
                 _settings.CustomRightPanePath,
-            _ => !string.IsNullOrWhiteSpace(leftPath) ? leftPath : ExplorerDetector.HomeShellGuid
+            _ => !string.IsNullOrWhiteSpace(leftPath) ? leftPath : ExplorerDetector.StartLocation
         };
     }
 
@@ -394,7 +394,7 @@ internal sealed class SplitManager : IDisposable
                 NativeMethods.PostMessage(explorerHwnd, NativeMethods.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
             }
 
-            OpenNewWindow(capturedPath ?? ExplorerDetector.HomeShellGuid);
+            OpenNewWindow(capturedPath ?? ExplorerDetector.StartLocation);
         }
         finally
         {

@@ -56,7 +56,7 @@ internal sealed class TabbedExplorerPane : Panel
     {
         string targetPath = !string.IsNullOrWhiteSpace(initialPath)
             ? initialPath
-            : ActiveTab?.FolderPath ?? ExplorerDetector.HomeShellGuid;
+            : ExplorerDetector.StartLocation; // like File Explorer: a new tab opens to "Open File Explorer to"
 
         uint viewMode = ActiveTab?.CurrentViewMode ?? ShellBrowserInterop.FVM_DETAILS;
         Color hostBg = _isDarkMode ? Color.FromArgb(25, 25, 25) : Color.White;

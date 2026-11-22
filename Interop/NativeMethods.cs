@@ -243,6 +243,9 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 
+    [DllImport("shell32.dll")]
+    internal static extern int SHGetKnownFolderPath(ref Guid rfid, uint dwFlags, IntPtr hToken, out IntPtr ppszPath);
+
     internal const uint RESOURCETYPE_DISK = 0x00000001;
 
     // "Map network drive" / "Disconnect network drive" dialogs (This PC's See more menu).

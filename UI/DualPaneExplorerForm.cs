@@ -624,7 +624,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
         string startLeft = !string.IsNullOrWhiteSpace(initialLeftPath)
             ? initialLeftPath
-            : ExplorerDetector.HomeShellGuid;
+            : ExplorerDetector.StartLocation;
         string startRight = !string.IsNullOrWhiteSpace(initialRightPath)
             ? initialRightPath
             : startLeft;

@@ -28,7 +28,7 @@ internal sealed class TitleBarOverlayButton : Form
             InitialDelay = 350,
             ReshowDelay = 200
         };
-        _toolTip.SetToolTip(this, "Toggle Side-by-Side Split View");
+        _toolTip.SetToolTip(this, "Open in Explorer2 (split view)");
     }
 
     protected override bool ShowWithoutActivation => true;
@@ -162,54 +162,73 @@ internal sealed class TitleBarOverlayButton : Form
         }
     }
 
+    // The button shows the Explorer2 app icon on File Explorer's title bar. Its background is made
+    // transparent (TransparencyKey) so only the icon, and a hover / split-active highlight, show.
+    private static bool IsLightTheme()
+    {
+        try
+        {
+            using Microsoft.Win32.RegistryKey? key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("AppsUseLightTheme") is not int value || value != 0;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private Bitmap? _appIcon;
+    private int _appIconSize;
+
+    private Bitmap GetAppIcon(int size)
+    {
+        if (_appIcon is null || _appIconSize != size)
+        {
+            _appIcon?.Dispose();
+            _appIconSize = size;
+            string? exe = Environment.ProcessPath;
+            using Icon? icon = exe is not null ? Icon.ExtractIcon(exe, 0, size) : null;
+            _appIcon = icon?.ToBitmap() ?? IconFactory.CreateTrayIcon().ToBitmap();
+        }
+
+        return _appIcon;
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
 
+        bool light = IsLightTheme();
+        // Close to the title bar color, so the icon's anti-aliased edges blend in.
+        Color key = light ? Color.FromArgb(240, 240, 241) : Color.FromArgb(31, 31, 32);
+        if (BackColor != key)
+        {
+            BackColor = key;
+            TransparencyKey = key;
+        }
+
         Graphics g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.Clear(key);
 
-        Color backgroundColor;
-        Color borderColor;
-        Color glyphColor;
-
-        if (_isActiveSplit)
+        Rectangle box = new(0, 0, Width - 1, Height - 1);
+        int radius = Math.Max(3, Height / 6);
+        if (_isActiveSplit || _isHovered)
         {
-            backgroundColor = _isHovered
-                ? Color.FromArgb(0, 96, 180)
-                : Color.FromArgb(0, 103, 192);
-            borderColor = Color.FromArgb(72, 160, 238);
-            glyphColor = Color.White;
-        }
-        else
-        {
-            backgroundColor = _isHovered
-                ? Color.FromArgb(62, 62, 68)
-                : Color.FromArgb(44, 44, 48);
-            borderColor = _isHovered
-                ? Color.FromArgb(115, 115, 125)
-                : Color.FromArgb(78, 78, 86);
-            glyphColor = Color.FromArgb(242, 242, 245);
+            Color fill = _isActiveSplit
+                ? (light ? Color.FromArgb(204, 228, 247) : Color.FromArgb(0, 74, 135))
+                : (light ? Color.FromArgb(224, 224, 226) : Color.FromArgb(58, 58, 62));
+            using GraphicsPath path = IconFactory.CreateRoundedRect(box, radius);
+            using SolidBrush brush = new(fill);
+            g.FillPath(brush, path);
         }
 
-        using SolidBrush bgBrush = new(backgroundColor);
-        g.FillRectangle(bgBrush, ClientRectangle);
-
-        Rectangle borderRect = new(0, 0, Width - 1, Height - 1);
-        using GraphicsPath borderPath = IconFactory.CreateRoundedRect(borderRect, Math.Max(3, Width / 8));
-        using Pen borderPen = new(borderColor, 1f);
-        g.DrawPath(borderPen, borderPath);
-
-        // Draw crisp split-pane glyph [|]
-        int padX = Math.Max(6, Width / 4);
-        int padY = Math.Max(5, Height / 4);
-        Rectangle iconRect = new(padX, padY, Width - padX * 2, Height - padY * 2);
-
-        using Pen iconPen = new(glyphColor, Math.Max(1.4f, Width / 20f));
-        g.DrawRectangle(iconPen, iconRect);
-
-        int midX = iconRect.Left + iconRect.Width / 2;
-        g.DrawLine(iconPen, midX, iconRect.Top, midX, iconRect.Bottom);
+        int iconSize = Math.Min(Height - 6, (int)Math.Round(Height * 0.7));
+        Bitmap icon = GetAppIcon(Math.Max(16, iconSize));
+        Rectangle iconRect = new((Width - iconSize) / 2, (Height - iconSize) / 2, iconSize, iconSize);
+        g.DrawImage(icon, iconRect);
     }
 
     protected override void Dispose(bool disposing)
@@ -217,6 +236,7 @@ internal sealed class TitleBarOverlayButton : Form
         if (disposing)
         {
             _toolTip.Dispose();
+            _appIcon?.Dispose();
         }
 
         base.Dispose(disposing);

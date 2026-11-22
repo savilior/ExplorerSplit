@@ -84,7 +84,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
     public ExplorerTabInstance(string initialPath, Color backColor, uint initialViewMode = ShellBrowserInterop.FVM_DETAILS)
     {
-        _pendingPath = string.IsNullOrWhiteSpace(initialPath) ? ExplorerDetector.HomeShellGuid : initialPath;
+        _pendingPath = string.IsNullOrWhiteSpace(initialPath) ? ExplorerDetector.StartLocation : initialPath;
         _lastNonSearchPath = _pendingPath;
         CurrentViewMode = initialViewMode;
         Title = GetShortFolderTitle(_pendingPath);
@@ -180,7 +180,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
         if (!NavigateToPath(_pendingPath))
         {
-            NavigateToPath(ExplorerDetector.HomeShellGuid);
+            NavigateToPath(ExplorerDetector.StartLocation);
         }
 
         SyncRect();
@@ -1939,7 +1939,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
     {
         if (string.IsNullOrWhiteSpace(rawInput))
         {
-            return ExplorerDetector.HomeShellGuid;
+            return ExplorerDetector.StartLocation;
         }
 
         string trimmed = rawInput.Trim().Trim('"');
