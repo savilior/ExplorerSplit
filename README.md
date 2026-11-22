@@ -17,7 +17,7 @@ The main difference is **Split mode**: two file panes side by side in one window
 - **Split mode** — two panes side by side, each with its own tabs (toggle with **Ctrl+Shift+S** or the **Split** button).
 - **Total Commander style marking in both modes**: Space/Insert to mark, Num * to invert, and the arrow keys move a visible cursor without dropping the marks.
 - **Total Commander style function keys in split mode**: F3 viewer, F4 edit, F5 copy, F6 move, F7 new folder, F8 delete, with a function-key bar in the status bar.
-- **Reorder Quick access in the navigation pane**: drag a pinned folder to the top or bottom edge of another pinned folder; a line shows where it will go.
+- **Reorder Quick access in the navigation pane**: drag a pinned folder to the top or bottom edge of another pinned folder; a line shows where it will go. The pane shows the new order at once and Windows' pin list is updated in the background (a few seconds for a long move). Changes made in File Explorer or other apps appear in open Explorer2 windows right away.
 - **F3 quick viewer** (like Total Commander's Lister) — native previews for PDF and Office files, images, text (UTF-8 / UTF-16 / ANSI) and hex.
 - **Preview pane** using the registered Windows preview handlers (PDF, Word, Excel, PowerPoint, mail, …).
 - **Native Share sheet**, Sort / Group by / View menus, breadcrumb address bar.

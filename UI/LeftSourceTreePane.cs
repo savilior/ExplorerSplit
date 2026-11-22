@@ -356,6 +356,7 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         }
 
         HookReorderDropTarget();
+        QuickAccessPins.StartWatching();
         QuickAccessPins.Changed += OnQuickAccessPinsChanged;
 
         _nstc.TreeAdvise(this, out _eventsCookie);
@@ -446,7 +447,7 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
     /// <returns>The number of roots kept; the ones after them were (re)inserted.</returns>
     private int InsertPinnedRoots()
     {
-        List<string> pinned = QuickAccessPins.GetPinnedFolders();
+        List<string> pinned = QuickAccessPins.Current;
         HashSet<string> added = new(StringComparer.OrdinalIgnoreCase);
         if (_oneDriveRootPath is not null)
         {
@@ -701,7 +702,7 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             ? _pinnedRoots[insertIndex].PinIndex
             : (_pinnedRoots.Count > 0 ? _pinnedRoots[^1].PinIndex + 1 : 0);
 
-        List<string> pinned = QuickAccessPins.GetPinnedFolders();
+        List<string> pinned = QuickAccessPins.Current;
         int from = pinned.FindIndex(p => string.Equals(p.TrimEnd('\\'), path.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase));
         int newIndex = from >= 0 && quickAccessInsert > from ? quickAccessInsert - 1 : quickAccessInsert;
         if (from >= 0 && newIndex == from)
@@ -709,24 +710,8 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             return; // dropped where it already is
         }
 
-        Cursor? previous = Cursor.Current;
-        Cursor.Current = Cursors.WaitCursor;
-        bool ok;
-        try
-        {
-            ok = QuickAccessPins.MoveTo(path, newIndex);
-        }
-        finally
-        {
-            Cursor.Current = previous;
-        }
-
-        QuickAccessPins.NotifyChanged();
-        if (!ok)
-        {
-            MessageBox.Show(FindForm(), "Quick access could not be put in the new order.", "Quick access",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
+        // The tree shows the new order at once; the pins are saved in the background
+        QuickAccessPins.RequestMove(path, newIndex);
     }
 
     private void AppendShellRoot(string parsingName, uint enumFlags, uint rootStyle) =>
