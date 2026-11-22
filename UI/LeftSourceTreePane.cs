@@ -6,7 +6,7 @@ using Explorer2.Interop;
 namespace Explorer2.UI;
 
 [ComVisible(true)]
-internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpaceTreeControlEvents
+internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpaceTreeControlEvents, IPinnedRoots
 {
     private const int E_NOTIMPL = unchecked((int)0x80004001);
     private const uint WM_PAINT = 0x000F;
@@ -328,20 +328,9 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         }
 
         // 4. Pinned Quick Access folders at root level (each with its own '>' expand chevron)
-        int pinnedCount = 0;
-        int rootCountBeforePinned = CountRootItems();
-        foreach (string pinnedPath in GetPinnedQuickAccessFolders())
-        {
-            string normalized = pinnedPath.TrimEnd('\\');
-            if (addedPaths.Add(normalized))
-            {
-                AppendShellRoot(
-                    pinnedPath,
-                    ShellBrowserInterop.SHCONTF_FOLDERS,
-                    ShellBrowserInterop.NSTCRS_VISIBLE);
-                pinnedCount++;
-            }
-        }
+        _oneDriveRootPath = addedPaths.FirstOrDefault();
+        _firstPinnedRootIndex = CountRootItems();
+        InsertPinnedRoots();
 
         // 5. This PC (expanded to show Desktop, Downloads, Documents, Pictures, Music, Videos, and Drives)
         int thisPcIndex = CountRootItems();
@@ -357,7 +346,7 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             ShellBrowserInterop.NSTCRS_VISIBLE);
 
         ClearRootExpandoForStandaloneItems(2);
-        _firstPinnedItem = pinnedCount > 0 ? GetRootItemAt(rootCountBeforePinned) : IntPtr.Zero;
+        UpdatePinnedRootItems();
         _thisPcItem = GetRootItemAt(thisPcIndex);
 
         if (_sysTreeHwnd != IntPtr.Zero && _treeSubclass is null)
@@ -365,6 +354,9 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             _treeSubclass = new SysTreeSubclass(this);
             _treeSubclass.AssignHandle(_sysTreeHwnd);
         }
+
+        HookReorderDropTarget();
+        QuickAccessPins.Changed += OnQuickAccessPinsChanged;
 
         _nstc.TreeAdvise(this, out _eventsCookie);
         SyncTreeBounds();
@@ -439,90 +431,313 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         }
     }
 
-    private static List<string> GetPinnedQuickAccessFolders()
+    // Pinned Quick access folders shown as tree roots: path, index in the Quick access pinned list,
+    // and tree item. They start at root index _firstPinnedRootIndex.
+    private readonly List<(string Path, int PinIndex, IntPtr Item)> _pinnedRoots = new();
+    private int _firstPinnedRootIndex;
+    private string? _oneDriveRootPath;
+    private QuickAccessReorderDropTarget? _reorderDropTarget;
+    private IntPtr _dropTargetHwnd;
+
+    /// <summary>
+    /// Shows the current pins as roots. Roots already shown in the right place are kept (with their
+    /// icons and expanded state); from the first difference on they are replaced.
+    /// </summary>
+    /// <returns>The number of roots kept; the ones after them were (re)inserted.</returns>
+    private int InsertPinnedRoots()
     {
-        List<string> results = new();
-        Type? shellType = Type.GetTypeFromProgID("Shell.Application");
-        if (shellType is null)
+        List<string> pinned = QuickAccessPins.GetPinnedFolders();
+        HashSet<string> added = new(StringComparer.OrdinalIgnoreCase);
+        if (_oneDriveRootPath is not null)
         {
-            return results;
+            added.Add(_oneDriveRootPath);
         }
 
-        object? shell = null;
-        object? nsObj = null;
-        object? itemsObj = null;
+        List<(string Path, int PinIndex)> wanted = new();
+        for (int i = 0; i < pinned.Count; i++)
+        {
+            if (added.Add(pinned[i].TrimEnd('\\')))
+            {
+                wanted.Add((pinned[i], i));
+            }
+        }
 
+        int keep = 0;
+        while (keep < _pinnedRoots.Count && keep < wanted.Count &&
+               string.Equals(_pinnedRoots[keep].Path, wanted[keep].Path, StringComparison.OrdinalIgnoreCase))
+        {
+            _pinnedRoots[keep] = _pinnedRoots[keep] with { PinIndex = wanted[keep].PinIndex };
+            keep++;
+        }
+
+        for (int i = _pinnedRoots.Count - 1; i >= keep; i--)
+        {
+            RemoveShellRoot(_pinnedRoots[i].Path);
+            _pinnedRoots.RemoveAt(i);
+        }
+
+        int rootIndex = _firstPinnedRootIndex + keep;
+        for (int i = keep; i < wanted.Count; i++)
+        {
+            if (InsertShellRoot(rootIndex, wanted[i].Path, ShellBrowserInterop.SHCONTF_FOLDERS, ShellBrowserInterop.NSTCRS_VISIBLE))
+            {
+                _pinnedRoots.Add((wanted[i].Path, wanted[i].PinIndex, IntPtr.Zero));
+                rootIndex++;
+            }
+        }
+
+        return keep;
+    }
+
+    /// <summary>
+    /// Sets a root's icon from the system image list (the tree uses it). A root removed and inserted
+    /// again sometimes never gets its icon from the tree's background icon loading.
+    /// </summary>
+    private void SetRootIcon(IntPtr hItem, string path)
+    {
+        const uint SHGFI_SYSICONINDEX = 0x000004000;
+        const uint TVIF_IMAGE = 0x0002;
+        const uint TVIF_SELECTEDIMAGE = 0x0020;
+
+        if (_sysTreeHwnd == IntPtr.Zero || hItem == IntPtr.Zero)
+        {
+            return;
+        }
+
+        NativeMethods.SHFILEINFO info = new();
+        if (NativeMethods.SHGetFileInfo(path, 0, ref info, (uint)Marshal.SizeOf<NativeMethods.SHFILEINFO>(),
+                SHGFI_SYSICONINDEX | NativeMethods.SHGFI_SMALLICON) == IntPtr.Zero)
+        {
+            return;
+        }
+
+        TVITEMCHILDREN tvItem = new()
+        {
+            mask = TVIF_IMAGE | TVIF_SELECTEDIMAGE,
+            hItem = hItem,
+            iImage = info.iIcon,
+            iSelectedImage = info.iIcon
+        };
+
+        IntPtr ptr = Marshal.AllocHGlobal(Marshal.SizeOf<TVITEMCHILDREN>());
         try
         {
-            shell = Activator.CreateInstance(shellType);
-            if (shell is null)
-            {
-                return results;
-            }
-
-            dynamic dynShell = shell;
-            nsObj = dynShell.NameSpace($"shell:{ExplorerDetector.HomeShellGuid}");
-            if (nsObj is null)
-            {
-                return results;
-            }
-
-            dynamic dynNs = nsObj;
-            itemsObj = dynNs.Items();
-            if (itemsObj is not IEnumerable items)
-            {
-                return results;
-            }
-
-            foreach (object? item in items)
-            {
-                if (item is null)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    dynamic dynItem = item;
-                    bool isFolder = Convert.ToBoolean(dynItem.IsFolder);
-                    string? path = dynItem.Path as string;
-                    if (isFolder && !string.IsNullOrWhiteSpace(path))
-                    {
-                        results.Add(path);
-                    }
-                }
-                catch
-                {
-                    // Ignore non-folder or inaccessible items
-                }
-                finally
-                {
-                    if (Marshal.IsComObject(item))
-                    {
-                        Marshal.ReleaseComObject(item);
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // Fall back gracefully if Quick Access enumeration is unavailable
+            Marshal.StructureToPtr(tvItem, ptr, false);
+            NativeMethods.SendMessage(_sysTreeHwnd, TVM_SETITEMW, IntPtr.Zero, ptr);
         }
         finally
         {
-            if (itemsObj is not null && Marshal.IsComObject(itemsObj)) Marshal.ReleaseComObject(itemsObj);
-            if (nsObj is not null && Marshal.IsComObject(nsObj)) Marshal.ReleaseComObject(nsObj);
-            if (shell is not null && Marshal.IsComObject(shell)) Marshal.ReleaseComObject(shell);
+            Marshal.FreeHGlobal(ptr);
         }
-
-        return results;
     }
 
-    private void AppendShellRoot(string parsingName, uint enumFlags, uint rootStyle)
+    private void SetRootIcons(List<(string Path, IntPtr Item)> roots)
+    {
+        foreach ((string path, IntPtr item) in roots)
+        {
+            SetRootIcon(item, path);
+        }
+    }
+
+    private void RemoveShellRoot(string path)
     {
         if (_nstc is null)
         {
             return;
+        }
+
+        Guid iid = ShellBrowserInterop.IidIShellItem;
+        if (ShellBrowserInterop.SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out ShellBrowserInterop.IShellItem? item) == 0 &&
+            item is not null)
+        {
+            try
+            {
+                _nstc.RemoveRoot(item);
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(item);
+            }
+        }
+    }
+
+    private void UpdatePinnedRootItems()
+    {
+        for (int i = 0; i < _pinnedRoots.Count; i++)
+        {
+            _pinnedRoots[i] = _pinnedRoots[i] with { Item = GetRootItemAt(_firstPinnedRootIndex + i) };
+        }
+
+        _firstPinnedItem = _pinnedRoots.Count > 0 ? _pinnedRoots[0].Item : IntPtr.Zero;
+    }
+
+    /// <summary>Quick access pins changed (reordered or pinned from Explorer2): rebuild the pinned roots.</summary>
+    private void OnQuickAccessPinsChanged()
+    {
+        if (_disposed || !IsHandleCreated)
+        {
+            return;
+        }
+
+        BeginInvoke(() =>
+        {
+            if (_disposed || _nstc is null)
+            {
+                return;
+            }
+
+            int kept = InsertPinnedRoots();
+            UpdatePinnedRootItems();
+            List<(string Path, IntPtr Item)> inserted = _pinnedRoots.Skip(kept).Select(r => (r.Path, r.Item)).ToList();
+            SetRootIcons(inserted);
+
+            // Once more after the tree's own background icon loading has run
+            System.Windows.Forms.Timer timer = new() { Interval = 1500 };
+            timer.Tick += (_, _) =>
+            {
+                timer.Dispose();
+                if (!_disposed)
+                {
+                    SetRootIcons(inserted.Where(r => _pinnedRoots.Any(p => p.Item == r.Item)).ToList());
+                }
+            };
+            timer.Start();
+
+            if (_sysTreeHwnd != IntPtr.Zero)
+            {
+                NativeMethods.InvalidateRect(_sysTreeHwnd, IntPtr.Zero, true);
+            }
+
+            ApplyHighlight();
+        });
+    }
+
+    /// <summary>
+    /// Puts our drop target in front of the tree's own, so dragging a folder to the edge of a pinned
+    /// Quick access folder shows an insertion line and reorders Quick access.
+    /// </summary>
+    private void HookReorderDropTarget()
+    {
+        foreach (IntPtr hwnd in new[] { _sysTreeHwnd, _nstcHwnd })
+        {
+            if (hwnd == IntPtr.Zero)
+            {
+                continue;
+            }
+
+            IntPtr existing = ShellBrowserInterop.GetProp(hwnd, "OleDropTargetInterface");
+            if (existing == IntPtr.Zero)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (Marshal.GetObjectForIUnknown(existing) is not ShellBrowserInterop.IDropTarget inner)
+                {
+                    return;
+                }
+
+                QuickAccessReorderDropTarget wrapper = new(_sysTreeHwnd, inner, this, _fgColor);
+                ShellBrowserInterop.RevokeDragDrop(hwnd);
+                if (ShellBrowserInterop.RegisterDragDrop(hwnd, wrapper) == 0)
+                {
+                    _reorderDropTarget = wrapper;
+                    _dropTargetHwnd = hwnd;
+                }
+                else
+                {
+                    ShellBrowserInterop.RegisterDragDrop(hwnd, inner); // put the original back
+                }
+            }
+            catch
+            {
+                // Reordering unavailable; the tree keeps its own drop target
+            }
+
+            return;
+        }
+    }
+
+    private void UnhookReorderDropTarget()
+    {
+        if (_reorderDropTarget is null || _dropTargetHwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            if (NativeMethods.IsWindow(_dropTargetHwnd))
+            {
+                ShellBrowserInterop.RevokeDragDrop(_dropTargetHwnd);
+                ShellBrowserInterop.RegisterDragDrop(_dropTargetHwnd, _reorderDropTarget.Inner);
+            }
+        }
+        catch
+        {
+            // Window already gone
+        }
+
+        _reorderDropTarget = null;
+        _dropTargetHwnd = IntPtr.Zero;
+    }
+
+    int IPinnedRoots.PinnedCount => _pinnedRoots.Count;
+
+    IntPtr IPinnedRoots.PinnedItemAt(int index) => _pinnedRoots[index].Item;
+
+    int IPinnedRoots.PinnedIndexOfItem(IntPtr hItem) => _pinnedRoots.FindIndex(r => r.Item == hItem);
+
+    void IPinnedRoots.DropAt(string path, int insertIndex)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        // Insertion point in Quick access terms (the tree may skip a pin shown elsewhere, like OneDrive)
+        int quickAccessInsert = insertIndex < _pinnedRoots.Count
+            ? _pinnedRoots[insertIndex].PinIndex
+            : (_pinnedRoots.Count > 0 ? _pinnedRoots[^1].PinIndex + 1 : 0);
+
+        List<string> pinned = QuickAccessPins.GetPinnedFolders();
+        int from = pinned.FindIndex(p => string.Equals(p.TrimEnd('\\'), path.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase));
+        int newIndex = from >= 0 && quickAccessInsert > from ? quickAccessInsert - 1 : quickAccessInsert;
+        if (from >= 0 && newIndex == from)
+        {
+            return; // dropped where it already is
+        }
+
+        Cursor? previous = Cursor.Current;
+        Cursor.Current = Cursors.WaitCursor;
+        bool ok;
+        try
+        {
+            ok = QuickAccessPins.MoveTo(path, newIndex);
+        }
+        finally
+        {
+            Cursor.Current = previous;
+        }
+
+        QuickAccessPins.NotifyChanged();
+        if (!ok)
+        {
+            MessageBox.Show(FindForm(), "Quick access could not be put in the new order.", "Quick access",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void AppendShellRoot(string parsingName, uint enumFlags, uint rootStyle) =>
+        InsertShellRoot(-1, parsingName, enumFlags, rootStyle);
+
+    /// <summary>Adds a root at <paramref name="index"/> (-1 = at the end). Returns false if it could not be added.</summary>
+    private bool InsertShellRoot(int index, string parsingName, uint enumFlags, uint rootStyle)
+    {
+        if (_nstc is null)
+        {
+            return false;
         }
 
         Guid iid = ShellBrowserInterop.IidIShellItem;
@@ -535,13 +750,17 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         {
             try
             {
-                _nstc.AppendRoot(item, enumFlags, rootStyle, IntPtr.Zero);
+                return (index < 0
+                    ? _nstc.AppendRoot(item, enumFlags, rootStyle, IntPtr.Zero)
+                    : _nstc.InsertRoot(index, item, enumFlags, rootStyle, IntPtr.Zero)) == 0;
             }
             finally
             {
                 Marshal.ReleaseComObject(item);
             }
         }
+
+        return false;
     }
 
     private void SyncTreeBounds()
@@ -740,6 +959,9 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         {
             return;
         }
+
+        QuickAccessPins.Changed -= OnQuickAccessPinsChanged;
+        UnhookReorderDropTarget();
 
         try
         {

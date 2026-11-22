@@ -6,9 +6,9 @@ using Explorer2.Interop;
 namespace Explorer2.UI;
 
 /// <summary>
-/// Total Commander style pane behaviour, active in split mode:
-/// Space / Insert toggle the focused item's selection and move down, Num * inverts the selection,
-/// and F3 View, F4 Edit, F5 Copy, F6 Move, F7 New Folder, F8 Delete (also as buttons in the
+/// Total Commander style pane behaviour. In both modes Space / Insert toggle the focused item's
+/// selection and move down, Num * inverts the selection, and cursor keys keep the marks. In split
+/// mode also F3 View, F4 Edit, F5 Copy, F6 Move, F7 New Folder, F8 Delete (also as buttons in the
 /// status bar). Backspace goes up one folder in both modes.
 /// </summary>
 internal sealed partial class DualPaneExplorerForm
@@ -146,24 +146,26 @@ internal sealed partial class DualPaneExplorerForm
             return false;
         }
 
-        // Function keys work wherever focus is in the window (except text fields).
-        if (modifiers == Keys.None && keyCode is >= Keys.F3 and <= Keys.F8)
+        // Function keys (split mode only) work wherever focus is in the window (except text fields).
+        if (_isSplitEnabled && modifiers == Keys.None && keyCode is >= Keys.F3 and <= Keys.F8)
         {
             RunCommanderFunctionKey(keyCode, modifiers);
             return true;
         }
 
-        if (modifiers == Keys.Shift && keyCode == Keys.F3)
+        if (_isSplitEnabled && modifiers == Keys.Shift && keyCode == Keys.F3)
         {
             CommanderOpenWithDefaultApp(tab);
             return true;
         }
 
-        if (modifiers == Keys.Shift && keyCode == Keys.F6)
+        if (_isSplitEnabled && modifiers == Keys.Shift && keyCode == Keys.F6)
         {
             tab.InvokeShellVerb("rename");
             return true;
         }
+
+        // Marking keys below work in both modes, in the file list only.
 
         bool inFileList = pane.IsHandleCreated && NativeMethods.IsChild(pane.Handle, hwnd);
         if (!inFileList)

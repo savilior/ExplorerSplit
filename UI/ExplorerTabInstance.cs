@@ -166,7 +166,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         // The site must be set before Initialize: the browser looks up its services then.
         if (_browser is ShellBrowserInterop.IObjectWithSite withSite)
         {
-            withSite.SetSite(new ExplorerBrowserSite(OpenSelectedFilesLikeExplorer));
+            withSite.SetSite(new ExplorerBrowserSite(HandleDefaultCommand));
         }
 
         int hr = _browser.Initialize(HostPanel.Handle, ref rc, ref _folderSettings);
@@ -793,6 +793,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
     {
         bool wasMarking = _isMarking;
         _isMarking = true;
+        ShowKeyboardCues();
         WithFolderView2(folderView2 =>
         {
             if (folderView2.GetFocusedItem(out int focused) != 0 || focused < 0)
@@ -839,11 +840,18 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
     public bool HasCommanderMarks => _isMarking && GetSelectedItemCount() > 0;
 
     /// <summary>
+    /// A plain click makes a new selection, so marking starts over: the next Space marks the
+    /// clicked item instead of unmarking it.
+    /// </summary>
+    public void ResetMarking() => _isMarking = false;
+
+    /// <summary>
     /// Moves the cursor (focused item) by <paramref name="steps"/> items in display order without
     /// changing which items are selected. int.MinValue / int.MaxValue go to the first / last item.
     /// </summary>
     public void MoveCursorKeepingMarks(int steps)
     {
+        ShowKeyboardCues();
         WithFolderView2(folderView2 =>
         {
             int target;
@@ -1319,7 +1327,113 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         return paths.Count > 0 ? paths[0] : null;
     }
 
-    /// <summary>Returns the file-system paths of the selected items (non-file-system items are skipped).</summary>
+    /// <summary>Default command (double-click / Enter) on the selection.</summary>
+    private bool HandleDefaultCommand() => BrowseSelectedFolderInPlace() || OpenSelectedFilesLikeExplorer();
+
+    /// <summary>
+    /// A single selected folder (or a shortcut to one) is opened in this tab. Left to the view, the
+    /// folder's "open" verb runs, and while Explorer2 replaces File Explorer that verb is
+    /// Explorer2 itself, so every double-click opened a new window.
+    /// </summary>
+    private bool BrowseSelectedFolderInPlace()
+    {
+        const uint SFGAO_LINK = 0x00010000;
+        const uint SFGAO_STREAM = 0x00400000;
+        const uint SFGAO_FOLDER = 0x20000000;
+        Guid bhidLinkTargetItem = new("3981E228-F559-11D3-8E3A-00C04F6837D5");
+
+        if (_browser is null || _disposed)
+        {
+            return false;
+        }
+
+        Guid iid = ShellBrowserInterop.IidIFolderView;
+        if (_browser.GetCurrentView(ref iid, out object? fvObj) != 0 ||
+            fvObj is not ShellBrowserInterop.IFolderView folderView)
+        {
+            return false;
+        }
+
+        ShellBrowserInterop.IShellItemArray? itemArray = null;
+        ShellBrowserInterop.IShellItem? item = null;
+        object? target = null;
+        try
+        {
+            Guid iidArray = ShellBrowserInterop.IidIShellItemArray;
+            if (folderView.Items(ShellBrowserInterop.SVGIO_SELECTION, ref iidArray, out object? arrayObj) != 0)
+            {
+                return false;
+            }
+
+            itemArray = arrayObj as ShellBrowserInterop.IShellItemArray;
+            if (itemArray is null || itemArray.GetCount(out uint count) != 0 || count != 1 ||
+                itemArray.GetItemAt(0, out item) != 0 || item is null ||
+                item.GetAttributes(SFGAO_LINK | SFGAO_STREAM | SFGAO_FOLDER, out uint attributes) < 0)
+            {
+                return false;
+            }
+
+            if ((attributes & SFGAO_LINK) != 0)
+            {
+                Guid iidItem = ShellBrowserInterop.IidIShellItem;
+                if (item.BindToHandler(IntPtr.Zero, ref bhidLinkTargetItem, ref iidItem, out IntPtr ppv) != 0 || ppv == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                try
+                {
+                    target = Marshal.GetObjectForIUnknown(ppv);
+                }
+                finally
+                {
+                    Marshal.Release(ppv);
+                }
+
+                if (target is not ShellBrowserInterop.IShellItem targetItem ||
+                    targetItem.GetAttributes(SFGAO_STREAM | SFGAO_FOLDER, out attributes) < 0)
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                target = item;
+            }
+
+            // Folders only; zip and other stream-backed folders keep the view's own behavior
+            if ((attributes & SFGAO_FOLDER) == 0 || (attributes & SFGAO_STREAM) != 0)
+            {
+                return false;
+            }
+
+            return _browser.BrowseToObject(target, ShellBrowserInterop.SBSP_ABSOLUTE) == 0;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            if (target is not null && !ReferenceEquals(target, item))
+            {
+                Marshal.ReleaseComObject(target);
+            }
+
+            if (item is not null)
+            {
+                Marshal.ReleaseComObject(item);
+            }
+
+            if (itemArray is not null)
+            {
+                Marshal.ReleaseComObject(itemArray);
+            }
+
+            Marshal.ReleaseComObject(folderView);
+        }
+    }
+
     /// <summary>
     /// Default command (double-click / Enter) on selected files: open them through explorer.exe,
     /// as File Explorer does. Apps that check who launched them (e.g. Foxit's "opened by an app
@@ -1359,6 +1473,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         return true;
     }
 
+    /// <summary>Returns the file-system paths of the selected items (non-file-system items are skipped).</summary>
     public List<string> GetSelectedItemPaths(int maxItems = int.MaxValue) =>
         GetItemPaths(ShellBrowserInterop.SVGIO_SELECTION, maxItems);
 
@@ -1935,6 +2050,51 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         }
     }
 
+    /// <summary>
+    /// Turns on the view's keyboard cues so the cursor (focused item) gets its focus rectangle.
+    /// Windows hides it until the view itself sees keyboard input, and the marking keys are
+    /// handled before they reach the view, so without this the cursor was invisible.
+    /// </summary>
+    private void ShowKeyboardCues()
+    {
+        const uint WM_UPDATEUISTATE = 0x0128;
+        const int UIS_CLEAR = 2;
+        const int UISF_HIDEFOCUS = 0x1;
+
+        if (_browser is null || _disposed || _keyboardCuesShown)
+        {
+            return;
+        }
+
+        Guid iidView = ShellBrowserInterop.IidIShellView;
+        if (_browser.GetCurrentView(ref iidView, out object? viewObj) != 0 ||
+            viewObj is not ShellBrowserInterop.IShellView shellView)
+        {
+            return;
+        }
+
+        try
+        {
+            if (shellView.GetWindow(out IntPtr viewHwnd) == 0 && viewHwnd != IntPtr.Zero)
+            {
+                // WM_UPDATEUISTATE passes itself on to every child window
+                NativeMethods.SendMessage(viewHwnd, WM_UPDATEUISTATE, (IntPtr)(UIS_CLEAR | (UISF_HIDEFOCUS << 16)), IntPtr.Zero);
+                _keyboardCuesShown = true;
+            }
+        }
+        catch
+        {
+            // Cosmetic only
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(shellView);
+        }
+    }
+
+    // Reset on navigation: each folder gets a new view window.
+    private bool _keyboardCuesShown;
+
     public static string NormalizeUserInputPath(string? rawInput)
     {
         if (string.IsNullOrWhiteSpace(rawInput))
@@ -2084,6 +2244,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
                                   ParsingPath.StartsWith("search-ms:", StringComparison.OrdinalIgnoreCase);
                 _searchNavigationPending = false;
                 _isMarking = false;
+                _keyboardCuesShown = false;
 
                 if (!IsShowingSearch)
                 {

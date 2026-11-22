@@ -571,6 +571,64 @@ internal static class ShellBrowserInterop
         int CollapseAll();
     }
 
+    /// <summary>OLE drop target. The data object stays a raw pointer so it can be passed on unchanged.</summary>
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("00000122-0000-0000-C000-000000000046")]
+    internal interface IDropTarget
+    {
+        [PreserveSig]
+        int DragEnter(IntPtr pDataObj, uint grfKeyState, NativeMethods.POINT pt, ref uint pdwEffect);
+
+        [PreserveSig]
+        int DragOver(uint grfKeyState, NativeMethods.POINT pt, ref uint pdwEffect);
+
+        [PreserveSig]
+        int DragLeave();
+
+        [PreserveSig]
+        int Drop(IntPtr pDataObj, uint grfKeyState, NativeMethods.POINT pt, ref uint pdwEffect);
+    }
+
+    /// <summary>Draws the shell drag image over a drop target (CLSID_DragDropHelper).</summary>
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("4657278B-411B-11D2-839A-00C04FD918D0")]
+    internal interface IDropTargetHelper
+    {
+        [PreserveSig]
+        int DragEnter(IntPtr hwndTarget, IntPtr pDataObject, ref NativeMethods.POINT ppt, uint dwEffect);
+
+        [PreserveSig]
+        int DragLeave();
+
+        [PreserveSig]
+        int DragOver(ref NativeMethods.POINT ppt, uint dwEffect);
+
+        [PreserveSig]
+        int Drop(IntPtr pDataObject, ref NativeMethods.POINT ppt, uint dwEffect);
+
+        [PreserveSig]
+        int Show([MarshalAs(UnmanagedType.Bool)] bool fShow);
+    }
+
+    internal static readonly Guid ClsidDragDropHelper = new("4657278A-411B-11D2-839A-00C04FD918D0");
+
+    [DllImport("shell32.dll")]
+    internal static extern int SHCreateShellItemArrayFromDataObject(
+        IntPtr pdo,
+        ref Guid riid,
+        [MarshalAs(UnmanagedType.Interface)] out IShellItemArray? ppv);
+
+    [DllImport("ole32.dll")]
+    internal static extern int RegisterDragDrop(IntPtr hwnd, IDropTarget pDropTarget);
+
+    [DllImport("ole32.dll")]
+    internal static extern int RevokeDragDrop(IntPtr hwnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr GetProp(IntPtr hWnd, string lpString);
+
     [ComImport]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     [Guid("93D77985-B3D8-4484-8318-672CDDA002CE")]

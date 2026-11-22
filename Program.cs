@@ -11,13 +11,19 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        // --standalone: one window, no tray and no hand-off to a running Explorer2. Lets a test
+        // build run next to the installed copy without touching it.
+        bool standalone = args.Contains("--standalone", StringComparer.OrdinalIgnoreCase);
+        args = args.Where(a => !a.Equals("--standalone", StringComparison.OrdinalIgnoreCase)).ToArray();
+
         string? startupFolder = args.Length > 0 && !string.IsNullOrWhiteSpace(args[0])
             ? args[0]
             : null;
 
-        using Mutex coordinatorMutex = new(initiallyOwned: true, CoordinatorMutexName, out bool isCoordinator);
+        using Mutex coordinatorMutex = new(initiallyOwned: !standalone, CoordinatorMutexName, out bool createdMutex);
+        bool isCoordinator = createdMutex && !standalone;
 
-        if (!isCoordinator)
+        if (!isCoordinator && !standalone)
         {
             if (TryForwardOpenWindowToCoordinator(startupFolder))
             {

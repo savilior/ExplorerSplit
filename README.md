@@ -15,7 +15,9 @@ The main difference is **Split mode**: two file panes side by side in one window
 - **Native file views** — each tab hosts the real Windows shell view, not a re-implementation.
 - **Tabs** in the title bar, Windows 11 style; drag tabs between panes.
 - **Split mode** — two panes side by side, each with its own tabs (toggle with **Ctrl+Shift+S** or the **Split** button).
-- **Total Commander style keys in split mode** — Space/Insert to mark, Num * to invert, F3 viewer, F4 edit, F5 copy, F6 move, F7 new folder, F8 delete, with a function-key bar in the status bar.
+- **Total Commander style marking in both modes**: Space/Insert to mark, Num * to invert, and the arrow keys move a visible cursor without dropping the marks.
+- **Total Commander style function keys in split mode**: F3 viewer, F4 edit, F5 copy, F6 move, F7 new folder, F8 delete, with a function-key bar in the status bar.
+- **Reorder Quick access in the navigation pane**: drag a pinned folder to the top or bottom edge of another pinned folder; a line shows where it will go.
 - **F3 quick viewer** (like Total Commander's Lister) — native previews for PDF and Office files, images, text (UTF-8 / UTF-16 / ANSI) and hex.
 - **Preview pane** using the registered Windows preview handlers (PDF, Word, Excel, PowerPoint, mail, …).
 - **Native Share sheet**, Sort / Group by / View menus, breadcrumb address bar.
@@ -143,6 +145,8 @@ Toggle with **Ctrl+Shift+S** (changeable from the tray menu) or the **Split** bu
 
 The function keys are also buttons in the status bar. Copy and move use Windows' own progress, conflict and undo (**Ctrl+Z**) handling. When you enter a folder, the cursor starts on its first item.
 
+The marking keys (**Space**, **Insert**, **Num \*** and the cursor keys while items are marked) also work in normal mode. A plain click starts a new selection, so the next **Space** marks the clicked item.
+
 > **Note:** some tools (for example keyboard-layout switchers such as LangOver) register **F6** system-wide. While an Explorer2 window in split mode is active, Explorer2 takes F6 first so *Move* still works; everywhere else F6 keeps its usual behaviour.
 
 ### Quick viewer (F3)
@@ -184,6 +188,8 @@ dotnet build Explorer2.sln -c Release
 ```
 
 The executable is written to `bin\Release\net8.0-windows\Explorer2.exe`.
+
+To try a build while your installed Explorer2 keeps running, start it with `--standalone` (optionally followed by a folder). It opens one window with no tray icon and does not hand the folder to the running Explorer2.
 
 ## License
 

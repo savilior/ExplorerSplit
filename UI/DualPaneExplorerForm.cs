@@ -2436,7 +2436,11 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             Add("Compress to ZIP file", Win11MenuRenderer.Glyph(""), tab.CompressSelectionToZip);
             if (selectedPaths.All(Directory.Exists))
             {
-                Add("Pin to Quick access", Win11MenuRenderer.Glyph("", accent: true), () => tab.InvokeShellVerb("pintohome"));
+                Add("Pin to Quick access", Win11MenuRenderer.Glyph("", accent: true), () =>
+                {
+                    tab.InvokeShellVerb("pintohome");
+                    NotifyPinsChangedSoon();
+                });
             }
             else
             {
@@ -2515,11 +2519,19 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         try
         {
             Process.Start(new ProcessStartInfo(folder) { Verb = "pintohome", UseShellExecute = true });
+            NotifyPinsChangedSoon();
         }
         catch
         {
             // Verb not available (e.g. a policy removed Quick access)
         }
+    }
+
+    /// <summary>The pin verb finishes shortly after it returns; then the navigation trees show the new pin.</summary>
+    private static async void NotifyPinsChangedSoon()
+    {
+        await Task.Delay(1000);
+        QuickAccessPins.NotifyChanged();
     }
 
     private static void AddNetworkLocation()
@@ -3211,21 +3223,29 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
                 ExitAddressEditMode();
             }
 
+            TabbedExplorerPane? clickedPane = null;
             if (_leftFilesPane.IsHandleCreated &&
                 (m.HWnd == _leftFilesPane.Handle || NativeMethods.IsChild(_leftFilesPane.Handle, m.HWnd)))
             {
-                if (_selectedPane != _leftFilesPane)
-                {
-                    SetSelectedPane(_leftFilesPane);
-                }
+                clickedPane = _leftFilesPane;
             }
             else if (_isSplitEnabled &&
                      _rightFilesPane.IsHandleCreated &&
                      (m.HWnd == _rightFilesPane.Handle || NativeMethods.IsChild(_rightFilesPane.Handle, m.HWnd)))
             {
-                if (_selectedPane != _rightFilesPane)
+                clickedPane = _rightFilesPane;
+            }
+
+            if (clickedPane is not null)
+            {
+                if (_selectedPane != clickedPane)
                 {
-                    SetSelectedPane(_rightFilesPane);
+                    SetSelectedPane(clickedPane);
+                }
+
+                if (m.Msg == NativeMethods.WM_LBUTTONDOWN && (Control.ModifierKeys & (Keys.Control | Keys.Shift)) == 0)
+                {
+                    clickedPane.ActiveTab?.ResetMarking();
                 }
             }
         }
@@ -3241,7 +3261,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
                 return true;
             }
 
-            if (_isSplitEnabled && !IsTextEditControlFocused(m.HWnd) && HandleCommanderKey(m.HWnd, keyCode, modifiers))
+            if (!IsTextEditControlFocused(m.HWnd) && HandleCommanderKey(m.HWnd, keyCode, modifiers))
             {
                 return true;
             }
