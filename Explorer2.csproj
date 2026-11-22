@@ -19,9 +19,36 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);backups\**</DefaultItemExcludes>
     <AssemblyName>Explorer2</AssemblyName>
     <RootNamespace>Explorer2</RootNamespace>
+    <!-- Fallback when git is unavailable; SetVersionFromGit below replaces it -->
     <Version>1.0.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>Explorer2</Product>
     <Description>Explorer2 — lightweight Windows 11 side-by-side split view companion for native File Explorer</Description>
   </PropertyGroup>
+
+  <!--
+    Version from git: the last vX.Y.Z tag plus the commits since it, e.g. tag v1.0.0 and 15 commits
+    later = 1.0.15, shown in About with the commit id ("1.0.15+89c6e24"). No manual bumping between
+    releases; tag a release (git tag v1.1.0) to start a new base.
+  -->
+  <Target Name="SetVersionFromGit" BeforeTargets="GetAssemblyVersion">
+    <Exec Command="git describe --tags --long --match v[0-9]*" ConsoleToMSBuild="true" IgnoreExitCode="true"
+          StandardOutputImportance="low" StandardErrorImportance="low" WorkingDirectory="$(MSBuildProjectDirectory)">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitDescribe" />
+      <Output TaskParameter="ExitCode" PropertyName="_GitExitCode" />
+    </Exec>
+
+    <PropertyGroup Condition="'$(_GitExitCode)' == '0' And $([System.Text.RegularExpressions.Regex]::IsMatch('$(_GitDescribe)', '^v\d+\.\d+\.\d+-\d+-g[0-9a-f]+$'))">
+      <_GitMajor>$([System.Text.RegularExpressions.Regex]::Replace('$(_GitDescribe)', '^v(\d+)\.\d+\.\d+-\d+-g[0-9a-f]+$', '$1'))</_GitMajor>
+      <_GitMinor>$([System.Text.RegularExpressions.Regex]::Replace('$(_GitDescribe)', '^v\d+\.(\d+)\.\d+-\d+-g[0-9a-f]+$', '$1'))</_GitMinor>
+      <_GitPatch>$([System.Text.RegularExpressions.Regex]::Replace('$(_GitDescribe)', '^v\d+\.\d+\.(\d+)-\d+-g[0-9a-f]+$', '$1'))</_GitPatch>
+      <_GitCommits>$([System.Text.RegularExpressions.Regex]::Replace('$(_GitDescribe)', '^v\d+\.\d+\.\d+-(\d+)-g[0-9a-f]+$', '$1'))</_GitCommits>
+      <_GitHash>$([System.Text.RegularExpressions.Regex]::Replace('$(_GitDescribe)', '^v\d+\.\d+\.\d+-\d+-g([0-9a-f]+)$', '$1'))</_GitHash>
+      <Version>$(_GitMajor).$(_GitMinor).$([MSBuild]::Add($(_GitPatch), $(_GitCommits)))</Version>
+      <AssemblyVersion>$(Version).0</AssemblyVersion>
+      <FileVersion>$(Version).0</FileVersion>
+      <InformationalVersion>$(Version)+$(_GitHash)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
 
 </Project>

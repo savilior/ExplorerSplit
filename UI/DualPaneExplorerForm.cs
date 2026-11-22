@@ -588,8 +588,8 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         _leftFilesPane = new TabbedExplorerPane("LEFT PANE", _isDarkMode);
         _rightFilesPane = new TabbedExplorerPane("RIGHT PANE", _isDarkMode);
 
-        _leftFilesPane.PaneSelected += SetSelectedPane;
-        _rightFilesPane.PaneSelected += SetSelectedPane;
+        _leftFilesPane.PaneSelected += pane => SetSelectedPane(pane);
+        _rightFilesPane.PaneSelected += pane => SetSelectedPane(pane);
 
         _leftFilesPane.ActiveTabStateChanged += OnPaneActiveTabStateChanged;
         _rightFilesPane.ActiveTabStateChanged += OnPaneActiveTabStateChanged;
@@ -1519,7 +1519,11 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         Invalidate(true);
     }
 
-    public void SetSelectedPane(TabbedExplorerPane pane)
+    /// <param name="moveTreeHighlight">
+    /// False when only focus moves between the panes (Tab, a click in the other pane): the nav tree
+    /// keeps its highlight and changes only when a pane navigates.
+    /// </param>
+    public void SetSelectedPane(TabbedExplorerPane pane, bool moveTreeHighlight = true)
     {
         if (!_isSplitEnabled && pane == _rightFilesPane)
         {
@@ -1531,7 +1535,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         _rightFilesPane.SetIsActivePane(pane == _rightFilesPane);
 
         _titleTabBar.Invalidate();
-        SyncTopAndBottomBarsWithActiveTab(pane.ActiveTab);
+        SyncTopAndBottomBarsWithActiveTab(pane.ActiveTab, moveTreeHighlight);
     }
 
     private void OnPaneActiveTabStateChanged(TabbedExplorerPane pane, ExplorerTabInstance tab)
@@ -1543,7 +1547,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         }
     }
 
-    private void SyncTopAndBottomBarsWithActiveTab(ExplorerTabInstance? tab)
+    private void SyncTopAndBottomBarsWithActiveTab(ExplorerTabInstance? tab, bool moveTreeHighlight = true)
     {
         if (tab is null)
         {
@@ -1581,7 +1585,11 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         _closeSearchBtn.Visible = tab.IsShowingSearch;
 
         Text = $"{tab.Title} — File Explorer";
-        _leftSourceTree.SyncHighlightToPath(tab.FolderPath);
+        if (moveTreeHighlight)
+        {
+            _leftSourceTree.SyncHighlightToPath(tab.FolderPath);
+        }
+
         _titleTabBar.Invalidate();
         RefreshStatusInfo(forceRepaint: true);
     }
@@ -3240,7 +3248,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             {
                 if (_selectedPane != clickedPane)
                 {
-                    SetSelectedPane(clickedPane);
+                    SetSelectedPane(clickedPane, moveTreeHighlight: false);
                 }
 
                 if (m.Msg == NativeMethods.WM_LBUTTONDOWN && (Control.ModifierKeys & (Keys.Control | Keys.Shift)) == 0)
@@ -3333,7 +3341,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
                     if (_isSplitEnabled)
                     {
                         TabbedExplorerPane nextPane = _selectedPane == _leftFilesPane ? _rightFilesPane : _leftFilesPane;
-                        SetSelectedPane(nextPane);
+                        SetSelectedPane(nextPane, moveTreeHighlight: false);
                         nextPane.ActiveTab?.FocusFileListView();
                     }
                     else

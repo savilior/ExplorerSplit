@@ -61,7 +61,14 @@ internal sealed class AboutDialog : Form
             Location = new Point(88, 22)
         });
 
-        string version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0";
+        // Set at build time from git ("1.0.15+89c6e24"): shown as "1.0.15 (89c6e24)"
+        string version = Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                         ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0";
+        int plus = version.IndexOf('+');
+        if (plus > 0)
+        {
+            version = $"{version[..plus]} ({version[(plus + 1)..]})";
+        }
         Controls.Add(new Label
         {
             Text = $"Version {version}",
