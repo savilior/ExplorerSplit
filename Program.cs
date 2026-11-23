@@ -31,6 +31,7 @@ internal static class Program
             }
         }
 
+        AppTheme.Mode = AppSettings.Load().Theme;
         AppTheme.ApplyToProcess();
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();

@@ -557,7 +557,8 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             Orientation = Orientation.Vertical,
             SplitterWidth = 4,
             FixedPanel = FixedPanel.Panel1,
-            BackColor = _borderColor
+            BackColor = _borderColor,
+            TabStop = false // the divider never takes the keyboard focus (arrows would move it)
         };
         _mainSplit.SplitterMoved += (_, _) =>
         {
@@ -577,7 +578,8 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
             SplitterWidth = 5,
-            BackColor = _borderColor
+            BackColor = _borderColor,
+            TabStop = false
         };
         _filesSplit.SplitterMoved += (_, _) =>
         {
@@ -698,6 +700,27 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         }
         SyncAllPaneViewRects();
         _titleTabBar.Invalidate();
+
+        // Start with the keyboard in the file list, as File Explorer does. The view may not exist
+        // yet: then the first finished navigation focuses it (OnPaneActiveTabStateChanged).
+        _initialFocusPending = true;
+        FocusInitialFileList();
+    }
+
+    private bool _initialFocusPending;
+
+    private void FocusInitialFileList()
+    {
+        if (!_initialFocusPending || _selectedPane.ActiveTab is not { } tab)
+        {
+            return;
+        }
+
+        tab.FocusFileListView();
+        if (_selectedPane.ContainsFocus)
+        {
+            _initialFocusPending = false;
+        }
     }
 
     protected override void OnSizeChanged(EventArgs e)
@@ -1545,6 +1568,11 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         if (IsHandleCreated)
         {
             AppTheme.AllowDarkForWindowTree(Handle);
+        }
+
+        if (_initialFocusPending && pane == _selectedPane && IsHandleCreated)
+        {
+            BeginInvoke(FocusInitialFileList);
         }
 
         _titleTabBar.Invalidate();
@@ -3342,14 +3370,31 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
                     return true;
                 }
 
-                // Tab / Shift+Tab switches active focus between Left Files Pane and Right Files Pane
+                // Ctrl+Shift+E: to the navigation pane, as in File Explorer
+                if (modifiers == (Keys.Control | Keys.Shift) && keyCode == Keys.E)
+                {
+                    _leftSourceTree.FocusTree();
+                    return true;
+                }
+
+                // Tab / Shift+Tab. From the navigation pane: back to the active files pane.
+                // Split mode: between the two files panes (Ctrl+Shift+E reaches the navigation pane).
+                // Single pane: between the navigation pane and the files.
                 if (keyCode == Keys.Tab && modifiers is Keys.None or Keys.Shift)
                 {
-                    if (_isSplitEnabled)
+                    if (_leftSourceTree.ContainsWindow(m.HWnd))
+                    {
+                        _selectedPane.ActiveTab?.FocusFileListView();
+                    }
+                    else if (_isSplitEnabled)
                     {
                         TabbedExplorerPane nextPane = _selectedPane == _leftFilesPane ? _rightFilesPane : _leftFilesPane;
                         SetSelectedPane(nextPane, moveTreeHighlight: false);
                         nextPane.ActiveTab?.FocusFileListView();
+                    }
+                    else if (_leftFilesPane.ContainsFocus)
+                    {
+                        _leftSourceTree.FocusTree();
                     }
                     else
                     {

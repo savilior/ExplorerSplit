@@ -3,28 +3,41 @@ using Microsoft.Win32;
 
 namespace Explorer2.Configuration;
 
+/// <summary>The theme chosen in the tray menu.</summary>
+internal enum ThemeMode
+{
+    System,
+    Light,
+    Dark
+}
+
 /// <summary>
-/// Light / dark mode, following Windows' "Choose your app mode" like File Explorer.
-/// The environment variable EXPLORER2_THEME=dark|light overrides it (for testing a theme without
-/// changing the Windows setting).
+/// Light / dark mode: the tray menu's Theme choice, where System follows Windows' "Choose your app
+/// mode" like File Explorer. The environment variable EXPLORER2_THEME=dark|light overrides both
+/// (for testing a theme without changing any setting).
 /// </summary>
 internal static class AppTheme
 {
-    private static readonly string? Override = Environment.GetEnvironmentVariable("EXPLORER2_THEME")?.Trim().ToLowerInvariant();
+    private static readonly string? EnvOverride = Environment.GetEnvironmentVariable("EXPLORER2_THEME")?.Trim().ToLowerInvariant();
+
+    /// <summary>The tray menu's choice; set at startup from the settings and when it changes.</summary>
+    public static ThemeMode Mode { get; set; } = ThemeMode.System;
+
+    private static ThemeMode EffectiveMode => EnvOverride switch
+    {
+        "dark" => ThemeMode.Dark,
+        "light" => ThemeMode.Light,
+        _ => Mode
+    };
 
     /// <summary>True when Explorer2 should draw in dark mode.</summary>
     public static bool IsDark
     {
         get
         {
-            if (Override is "dark")
+            if (EffectiveMode != ThemeMode.System)
             {
-                return true;
-            }
-
-            if (Override is "light")
-            {
-                return false;
+                return EffectiveMode == ThemeMode.Dark;
             }
 
             try
@@ -110,10 +123,10 @@ internal static class AppTheme
     {
         try
         {
-            PreferredAppMode mode = Override switch
+            PreferredAppMode mode = EffectiveMode switch
             {
-                "dark" => PreferredAppMode.ForceDark,
-                "light" => PreferredAppMode.ForceLight,
+                ThemeMode.Dark => PreferredAppMode.ForceDark,
+                ThemeMode.Light => PreferredAppMode.ForceLight,
                 _ => PreferredAppMode.AllowDark
             };
 

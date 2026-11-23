@@ -166,6 +166,30 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
     /// shown in the tree nothing is highlighted, unless Folder Options "Expand to open folder" is on;
     /// then the tree expands down to it. The programmatic selection never navigates.
     /// </summary>
+    /// <summary>True when the keyboard focus is in the tree (or <paramref name="hwnd"/> belongs to it).</summary>
+    public bool ContainsWindow(IntPtr hwnd) =>
+        hwnd != IntPtr.Zero && _hostPanel.IsHandleCreated &&
+        (hwnd == _hostPanel.Handle || NativeMethods.IsChild(_hostPanel.Handle, hwnd));
+
+    /// <summary>Puts the keyboard focus in the tree, on the highlighted folder (Ctrl+Shift+E, Tab).</summary>
+    public void FocusTree()
+    {
+        if (_sysTreeHwnd == IntPtr.Zero || _disposed)
+        {
+            return;
+        }
+
+        NativeMethods.SetFocus(_sysTreeHwnd);
+
+        // Show the focus rectangle (keyboard cues are hidden until the user presses Alt/Tab in it)
+        const int WM_UPDATEUISTATE = 0x0128, UIS_CLEAR = 2, UISF_HIDEFOCUS = 1;
+        NativeMethods.SendMessage(_sysTreeHwnd, WM_UPDATEUISTATE, new IntPtr(UIS_CLEAR | (UISF_HIDEFOCUS << 16)), IntPtr.Zero);
+
+        // Nothing highlighted (the folder isn't shown in the tree): the tree would select Home by
+        // itself; that selection is ignored and never navigates (OnSelectionChanged)
+        ApplyHighlight();
+    }
+
     public void SyncHighlightToPath(string? currentPath)
     {
         _highlightPath = currentPath;

@@ -27,7 +27,7 @@ The main difference is **Split mode**: two file panes side by side in one window
 - **Follows File Explorer's Folder Options** — new windows and tabs open to the *Open File Explorer to* location (Home, This PC or Downloads); hidden files, extensions, check boxes and the other view options come from the native views.
 - **Explorer2 button on File Explorer's title bar** — click the Explorer2 icon on a native File Explorer window to open that folder in Explorer2's split view.
 - **Tray app** — runs in the background, opens new windows instantly, optional start with Windows.
-- Light and dark mode follow the Windows theme.
+- Light and dark mode follow the Windows theme, or pick one in the tray menu (**Theme**).
 
 ## Requirements
 
@@ -124,10 +124,14 @@ Closing the last tab of one pane in split mode closes that pane (the other pane'
 | Rename | **F2** |
 | New folder | **Ctrl+Shift+N** |
 | Properties | **Alt+Enter** |
+| Move between the navigation pane and the files (normal mode) | **Tab** / **Shift+Tab** |
+| Go to the navigation pane | **Ctrl+Shift+E**; **Tab** returns to the files |
+
+A new window starts with the keyboard in the file list.
 
 ### Split mode (Total Commander style)
 
-Toggle with **Ctrl+Shift+S** (changeable from the tray menu) or the **Split** button. **Tab** switches between the left and right pane.
+Toggle with **Ctrl+Shift+S** (changeable from the tray menu) or the **Split** button. **Tab** switches between the left and right pane; **Ctrl+Shift+E** goes to the navigation pane and **Tab** comes back to the active pane.
 
 | Key | Action |
 |---|---|
@@ -176,6 +180,7 @@ Click **Preview** in the command bar. It uses the same preview handlers as File 
 | **Enable Title Bar Toggle Button** | Shows a split button on native File Explorer windows |
 | **Hotkey** | Changes the split-mode hotkey (default **Ctrl+Shift+S**) |
 | **Default Right-Pane Path** | What the right pane opens: same folder as the left, Home, or a custom folder |
+| **Theme** | **Use Windows Setting** (default), **Light** or **Dark**. New windows use it; reopen open windows to see a change |
 | **Run at Windows Startup** | Starts Explorer2 in the background when you sign in |
 | **Close All Windows** / **Exit** | Close every window / quit Explorer2 |
 

@@ -30,6 +30,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _homeItem;
     private readonly ToolStripMenuItem _customPathItem;
     private readonly ToolStripMenuItem _startupItem;
+    private readonly ToolStripMenuItem _themeSystemItem;
+    private readonly ToolStripMenuItem _themeLightItem;
+    private readonly ToolStripMenuItem _themeDarkItem;
     private readonly ToolStripMenuItem _unpairAllItem;
 
     private IntPtr _lastExplorerHwnd;
@@ -65,6 +68,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
         ToolStripMenuItem rightPaneMenu = new("Default Right-Pane Path");
         rightPaneMenu.DropDownItems.AddRange([_sameAsLeftItem, _homeItem, _customPathItem]);
 
+        _themeSystemItem = new ToolStripMenuItem("Use Windows Setting", null, (_, _) => SetTheme(ThemeMode.System));
+        _themeLightItem = new ToolStripMenuItem("Light", null, (_, _) => SetTheme(ThemeMode.Light));
+        _themeDarkItem = new ToolStripMenuItem("Dark", null, (_, _) => SetTheme(ThemeMode.Dark));
+        ToolStripMenuItem themeMenu = new("Theme");
+        themeMenu.DropDownItems.AddRange([_themeSystemItem, _themeLightItem, _themeDarkItem]);
+
         _startupItem = new ToolStripMenuItem("Run at Windows Startup", null, OnToggleStartup);
         _unpairAllItem = new ToolStripMenuItem("Close All Windows", null, (_, _) => _splitManager.UnpairAll(closeSecondary: false));
         ToolStripMenuItem exitItem = new("Exit", null, (_, _) => ExitApplication());
@@ -79,6 +88,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _titleBarButtonItem,
             _hotkeyItem,
             rightPaneMenu,
+            themeMenu,
             _startupItem,
             new ToolStripSeparator(),
             _unpairAllItem,
@@ -344,6 +354,29 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
     }
 
+    /// <summary>
+    /// New windows open in the chosen theme. Open windows keep theirs (their colors are set when
+    /// they are created), so they are offered to reopen.
+    /// </summary>
+    private void SetTheme(ThemeMode mode)
+    {
+        if (_settings.Theme == mode)
+        {
+            return;
+        }
+
+        _settings.Theme = mode;
+        _settings.Save();
+        AppTheme.Mode = mode;
+        AppTheme.ApplyToProcess();
+        SyncMenuState();
+
+        if (_splitManager.ActivePairCount > 0)
+        {
+            _notifyIcon.ShowBalloonTip(4000, "Explorer2", "The theme applies to new windows. Reopen open windows to see it.", ToolTipIcon.Info);
+        }
+    }
+
     private void OnToggleStartup(object? sender, EventArgs e)
     {
         bool targetState = !StartupManager.IsEnabled();
@@ -367,6 +400,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
             : $"Custom ({_settings.CustomRightPanePath})...";
 
         _startupItem.Checked = StartupManager.IsEnabled();
+
+        _themeSystemItem.Checked = _settings.Theme == ThemeMode.System;
+        _themeLightItem.Checked = _settings.Theme == ThemeMode.Light;
+        _themeDarkItem.Checked = _settings.Theme == ThemeMode.Dark;
 
         int winCount = _splitManager.ActivePairCount;
         _unpairAllItem.Enabled = winCount > 0;

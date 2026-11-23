@@ -62,6 +62,9 @@ internal sealed class AppSettings
 
     public string CustomRightPanePath { get; set; } = string.Empty;
 
+    /// <summary>System (follow Windows), Light or Dark.</summary>
+    public ThemeMode Theme { get; set; } = ThemeMode.System;
+
     public static AppSettings Load()
     {
         MigrateLegacySettingsIfNeeded();
