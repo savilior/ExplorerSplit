@@ -164,6 +164,8 @@ internal sealed class QuickViewerForm : Form
         {
             // Older Windows builds
         }
+
+        Configuration.AppTheme.AllowDarkForWindowTree(Handle);
     }
 
     protected override void OnShown(EventArgs e)

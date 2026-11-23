@@ -113,7 +113,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         bool startInSplit = false)
     {
         _isSplitEnabled = startInSplit;
-        _isDarkMode = IsSystemDarkMode();
+        _isDarkMode = AppTheme.IsDark;
 
         _titleBarBg = _isDarkMode ? Color.FromArgb(26, 26, 30) : Color.FromArgb(224, 224, 231);
         _titleTabHoverBg = _isDarkMode ? Color.FromArgb(34, 34, 40) : Color.FromArgb(234, 234, 240);
@@ -667,6 +667,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
+        AppTheme.AllowDarkForWindowTree(Handle);
 
         try
         {
@@ -1540,6 +1541,12 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
     private void OnPaneActiveTabStateChanged(TabbedExplorerPane pane, ExplorerTabInstance tab)
     {
+        // A navigation creates a new shell view window: let it show dark menus too
+        if (IsHandleCreated)
+        {
+            AppTheme.AllowDarkForWindowTree(Handle);
+        }
+
         _titleTabBar.Invalidate();
         if (pane == _selectedPane)
         {
@@ -3453,21 +3460,6 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         }
 
         base.Dispose(disposing);
-    }
-
-    private static bool IsSystemDarkMode()
-    {
-        try
-        {
-            using RegistryKey? key = Registry.CurrentUser.OpenSubKey(
-                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-            object? value = key?.GetValue("AppsUseLightTheme");
-            return value is int intVal && intVal == 0;
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private class DoubleBufferedPanel : Panel

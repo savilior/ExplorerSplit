@@ -12,6 +12,12 @@ internal sealed class AboutDialog : Form
     private readonly Font _bodyFont;
     private readonly Bitmap? _iconBitmap;
 
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Configuration.AppTheme.AllowDarkForWindowTree(Handle); // dark title bar in dark mode
+    }
+
     public AboutDialog(bool isDarkMode, Icon? appIcon)
     {
         Color bg = isDarkMode ? Color.FromArgb(40, 40, 46) : Color.FromArgb(243, 243, 246);

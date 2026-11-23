@@ -8,6 +8,12 @@ internal sealed class CommanderPromptDialog : Form
 {
     private readonly TextBox _input;
 
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Configuration.AppTheme.AllowDarkForWindowTree(Handle); // dark title bar in dark mode
+    }
+
     public CommanderPromptDialog(string title, string message, string initialText, string okText, bool isDarkMode)
     {
         Color bg = isDarkMode ? Color.FromArgb(40, 40, 46) : Color.FromArgb(243, 243, 246);
