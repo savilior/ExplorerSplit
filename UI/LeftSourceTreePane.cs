@@ -87,7 +87,7 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         Padding = new Padding(8, 0, 0, 0);
         Margin = Padding.Empty;
 
-        _hostPanel = new Panel
+        _hostPanel = new KeyboardHostPanel
         {
             Dock = DockStyle.Fill,
             BackColor = _bgColor,
@@ -170,6 +170,9 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
     public bool ContainsWindow(IntPtr hwnd) =>
         hwnd != IntPtr.Zero && _hostPanel.IsHandleCreated &&
         (hwnd == _hostPanel.Handle || NativeMethods.IsChild(_hostPanel.Handle, hwnd));
+
+    /// <summary>True when the tree itself has the keyboard focus.</summary>
+    public bool HasKeyboardFocus => _sysTreeHwnd != IntPtr.Zero && NativeMethods.GetFocus() == _sysTreeHwnd;
 
     /// <summary>Puts the keyboard focus in the tree, on the highlighted folder (Ctrl+Shift+E, Tab).</summary>
     public void FocusTree()
@@ -1303,6 +1306,22 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         finally
         {
             Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    /// <summary>
+    /// Hosts the native tree. WinForms would otherwise treat the arrow keys, Home/End, PgUp/PgDn,
+    /// Enter and Esc pressed in the tree as dialog navigation between controls and never pass them
+    /// to the tree, so the keyboard did nothing there.
+    /// </summary>
+    private sealed class KeyboardHostPanel : Panel
+    {
+        protected override bool IsInputKey(Keys keyData)
+        {
+            Keys key = keyData & Keys.KeyCode;
+            return key is Keys.Up or Keys.Down or Keys.Left or Keys.Right or Keys.Home or Keys.End
+                       or Keys.PageUp or Keys.PageDown or Keys.Enter or Keys.Escape
+                   || base.IsInputKey(keyData);
         }
     }
 

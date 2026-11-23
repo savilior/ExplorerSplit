@@ -569,6 +569,10 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         _leftSourceTree = new LeftSourceTreePane(_isDarkMode);
         _leftSourceTree.SourceSelected += path =>
         {
+            // Opening a folder from the tree keeps the keyboard in the tree, as in File Explorer
+            // (the new view would otherwise take the focus, and the next arrow key would move in
+            // the file list instead of the tree)
+            _refocusTreeAfterNavigation = _leftSourceTree.HasKeyboardFocus;
             _selectedPane?.ActiveTab?.NavigateToPath(path);
         };
         _mainSplit.Panel1.Controls.Add(_leftSourceTree);
@@ -708,6 +712,31 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
     }
 
     private bool _initialFocusPending;
+    private bool _refocusTreeAfterNavigation;
+    private long _lastFormInputTick;
+
+    /// <summary>
+    /// The new shell view takes the keyboard focus while it loads and puts the cursor on its first
+    /// item, after the navigation has completed. Takes it back for the tree during the first second,
+    /// unless the user pressed a key or clicked meanwhile (then the focus is where they put it).
+    /// </summary>
+    private async void KeepFocusInTreeAfterNavigation(TabbedExplorerPane pane)
+    {
+        long started = Environment.TickCount64;
+        foreach (int delay in new[] { 0, 100, 250, 500, 900, 1300 })
+        {
+            await Task.Delay(delay);
+            if (IsDisposed || _lastFormInputTick > started)
+            {
+                return;
+            }
+
+            if (pane.ContainsFocus)
+            {
+                _leftSourceTree.FocusTree();
+            }
+        }
+    }
 
     private void FocusInitialFileList()
     {
@@ -1573,6 +1602,12 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         if (_initialFocusPending && pane == _selectedPane && IsHandleCreated)
         {
             BeginInvoke(FocusInitialFileList);
+        }
+
+        if (_refocusTreeAfterNavigation && pane == _selectedPane && IsHandleCreated)
+        {
+            _refocusTreeAfterNavigation = false;
+            KeepFocusInTreeAfterNavigation(pane);
         }
 
         _titleTabBar.Invalidate();
@@ -3255,6 +3290,20 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         if (IsDisposed || !Visible)
         {
             return false;
+        }
+
+        // Keys and clicks other than moving within the navigation pane (Tab, a click in the files…):
+        // the user moved on, so stop giving the tree the focus back (KeepFocusInTreeAfterNavigation)
+        if (m.Msg is NativeMethods.WM_KEYDOWN or NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN or NativeMethods.WM_MBUTTONDOWN)
+        {
+            bool movingInTree = _leftSourceTree.ContainsWindow(m.HWnd) &&
+                                (m.Msg != NativeMethods.WM_KEYDOWN ||
+                                 ((Keys)m.WParam.ToInt32() & Keys.KeyCode) is Keys.Up or Keys.Down or Keys.Left or Keys.Right
+                                     or Keys.Home or Keys.End or Keys.PageUp or Keys.PageDown);
+            if (!movingInTree)
+            {
+                _lastFormInputTick = Environment.TickCount64;
+            }
         }
 
         if (m.Msg is NativeMethods.WM_LBUTTONDOWN or NativeMethods.WM_RBUTTONDOWN or NativeMethods.WM_MBUTTONDOWN)
