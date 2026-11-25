@@ -566,7 +566,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             SyncAllPaneViewRects();
         };
 
-        _leftSourceTree = new LeftSourceTreePane(_isDarkMode);
+        _leftSourceTree = new LeftSourceTreePane(_isDarkMode, Configuration.AppSettings.FavoritesSectionEnabled);
         _leftSourceTree.SourceSelected += path =>
         {
             // Opening a folder from the tree keeps the keyboard in the tree, as in File Explorer
@@ -596,6 +596,17 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
         _leftFilesPane.PaneSelected += pane => SetSelectedPane(pane);
         _rightFilesPane.PaneSelected += pane => SetSelectedPane(pane);
+
+        // Favorites: open in a new tab / in the other pane
+        _leftSourceTree.OpenInNewTabRequested += path => _selectedPane?.AddNewTab(path, activate: true);
+        _leftSourceTree.OtherPaneOpener = () => _isSplitEnabled
+            ? path =>
+            {
+                TabbedExplorerPane other = _selectedPane == _leftFilesPane ? _rightFilesPane : _leftFilesPane;
+                SetSelectedPane(other, moveTreeHighlight: false);
+                other.ActiveTab?.NavigateToPath(path);
+            }
+            : null;
 
         _leftFilesPane.ActiveTabStateChanged += OnPaneActiveTabStateChanged;
         _rightFilesPane.ActiveTabStateChanged += OnPaneActiveTabStateChanged;

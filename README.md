@@ -17,7 +17,8 @@ The main difference is **Split mode**: two file panes side by side in one window
 - **Split mode** — two panes side by side, each with its own tabs (toggle with **Ctrl+Shift+S** or the **Split** button).
 - **Total Commander style marking in both modes**: Space/Insert to mark, Num * to invert, and the arrow keys move a visible cursor without dropping the marks.
 - **Total Commander style function keys in split mode**: F3 viewer, F4 edit, F5 copy, F6 move, F7 new folder, F8 delete, with a function-key bar in the status bar.
-- **Reorder Quick access in the navigation pane**: drag a pinned folder to the top or bottom edge of another pinned folder; a line shows where it will go. The pane shows the new order at once and Windows' pin list is updated in the background (a few seconds for a long move). Changes made in File Explorer or other apps appear in open Explorer2 windows right away.
+- **Favorites in the navigation pane** (instead of the Quick access pins): folders and files you pin, in groups (also groups inside groups). Rest the mouse on a group and its contents open to the side; click to open in the active pane, or click the small icon at the right of a folder to open it in a new tab. Drag to add and reorder. See [Favorites](#favorites).
+- **Reorder Quick access in the navigation pane** (with Favorites turned off): drag a pinned folder to the top or bottom edge of another pinned folder; a line shows where it will go. The pane shows the new order at once and Windows' pin list is updated in the background (a few seconds for a long move). Changes made in File Explorer or other apps appear in open Explorer2 windows right away.
 - **F3 quick viewer** (like Total Commander's Lister) — native previews for PDF and Office files, images, text (UTF-8 / UTF-16 / ANSI) and hex.
 - **Preview pane** using the registered Windows preview handlers (PDF, Word, Excel, PowerPoint, mail, …).
 - **Native Share sheet**, Sort / Group by / View menus, breadcrumb address bar.
@@ -129,6 +130,25 @@ Closing the last tab of one pane in split mode closes that pane (the other pane'
 
 A new window starts with the keyboard in the file list.
 
+### Favorites
+
+The top of the navigation pane shows Home, Gallery and your **Favorites**, in place of File Explorer's Quick access pins. The first time it starts with a copy of your Quick access pins; after that it is Explorer2's own list (Quick access itself is never changed). It is saved in `%APPDATA%\Explorer2\favorites.json` and shared by all Explorer2 windows.
+
+| To | Do |
+|---|---|
+| Open a favorite in the active pane | Click it (a file opens with its app) |
+| Open a folder in a new tab | Click the icon at the right of the row (it shows when the mouse is on the row), middle-click, or **Ctrl+Enter** |
+| Open a folder in the other pane (split mode) | Right-click → **Open in other pane** |
+| See a group's contents | Rest the mouse on the group: they open to the side and close when the mouse leaves. Click the group (or its arrow) to open it in place instead |
+| Add folders or files | Drag them from anywhere onto the list (a line shows where they go; onto a group puts them inside it), or right-click them in the files or the folder tree → **Pin to Favorites** |
+| Copy or move files into a favorite folder | Drop them onto the middle of the folder, as in the folder tree |
+| Reorder, or move into / out of a group | Drag the favorite (also into and out of the side flyouts) |
+| Make a group | Right-click → **New group** (or **New group inside** on a group) |
+| Rename / remove | Right-click → **Rename** (**F2**) / **Unpin from Favorites** (**Del**). Removing a favorite never touches the folder or file itself |
+| Use the keyboard | **Ctrl+Shift+E**, then the arrow keys (a folder opens as you move onto it), **Right** / **Left** open and close a group, **Enter** opens. **Down** at the end continues into the folder tree |
+
+A favorite whose folder or file can't be found (moved, deleted, drive not connected) is shown dimmed; clicking it offers to remove it. To go back to the native Quick access pins, turn off **Favorites in Navigation Pane** in the tray menu.
+
 ### Split mode (Total Commander style)
 
 Toggle with **Ctrl+Shift+S** (changeable from the tray menu) or the **Split** button. **Tab** switches between the left and right pane; **Ctrl+Shift+E** goes to the navigation pane and **Tab** comes back to the active pane.
@@ -178,6 +198,7 @@ Click **Preview** in the command bar. It uses the same preview handlers as File 
 | **Start in Split Mode by Default** | New windows open with two panes |
 | **Always Use Details View & Group: None** | Forces Details view without grouping in every folder |
 | **Enable Title Bar Toggle Button** | Shows a split button on native File Explorer windows |
+| **Favorites in Navigation Pane** | On (default): the navigation pane shows Explorer2's [Favorites](#favorites). Off: File Explorer's Quick access pins. New windows use it |
 | **Hotkey** | Changes the split-mode hotkey (default **Ctrl+Shift+S**) |
 | **Default Right-Pane Path** | What the right pane opens: same folder as the left, Home, or a custom folder |
 | **Theme** | **Use Windows Setting** (default), **Light** or **Dark**. New windows use it; reopen open windows to see a change |

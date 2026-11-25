@@ -69,6 +69,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
     private string _lastNonSearchPath;
     private bool _initialized;
     private bool _disposed;
+    private FileViewFavoritesMenuHook? _favoritesMenuHook;
 
     // Shell property-bag names keep the pre-rename identifiers so per-folder view state
     // saved by earlier versions (when the app was named ExplorerSplit) is preserved.
@@ -1477,6 +1478,10 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
     public List<string> GetSelectedItemPaths(int maxItems = int.MaxValue) =>
         GetItemPaths(ShellBrowserInterop.SVGIO_SELECTION, maxItems);
 
+    /// <summary>Selected items' paths; with <paramref name="includeShellItems"/>, items without one (a drive, This PC…) by their shell parsing name.</summary>
+    public List<string> GetSelectedItemPaths(bool includeShellItems) =>
+        GetItemPaths(ShellBrowserInterop.SVGIO_SELECTION, int.MaxValue, includeShellItems);
+
     /// <summary>File-system paths of every item in the view, in the view's display (sort) order.</summary>
     public List<string> GetAllItemPathsInViewOrder()
     {
@@ -1485,7 +1490,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         return GetItemPaths(SVGIO_ALLVIEW | SVGIO_FLAG_VIEWORDER, int.MaxValue);
     }
 
-    private List<string> GetItemPaths(uint svgio, int maxItems)
+    private List<string> GetItemPaths(uint svgio, int maxItems, bool includeShellItems = false)
     {
         List<string> result = new();
         if (_browser is null || _disposed)
@@ -1525,7 +1530,14 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
                     try
                     {
-                        if (item.GetDisplayName(ShellBrowserInterop.SIGDN_FILESYSPATH, out string? path) == 0 &&
+                        if (includeShellItems)
+                        {
+                            if (FavoritesDropTarget.PathOf(item) is { } anyPath)
+                            {
+                                result.Add(anyPath);
+                            }
+                        }
+                        else if (item.GetDisplayName(ShellBrowserInterop.SIGDN_FILESYSPATH, out string? path) == 0 &&
                             !string.IsNullOrWhiteSpace(path))
                         {
                             result.Add(path);
@@ -2195,6 +2207,23 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
 
     int ShellBrowserInterop.IExplorerBrowserEvents.OnViewCreated(object psv)
     {
+        // "Pin to Favorites" in the new view's right-click menu
+        if (!_disposed && AppSettingsFavorites.Enabled && psv is ShellBrowserInterop.IShellView view)
+        {
+            try
+            {
+                if (view.GetWindow(out IntPtr viewHwnd) == 0 && viewHwnd != IntPtr.Zero)
+                {
+                    _favoritesMenuHook?.Detach();
+                    _favoritesMenuHook = new FileViewFavoritesMenuHook(viewHwnd, () => GetSelectedItemPaths(includeShellItems: true));
+                }
+            }
+            catch
+            {
+                // The view works without it
+            }
+        }
+
         if (!_disposed && HostPanel.IsHandleCreated)
         {
             if (HostPanel.InvokeRequired)
@@ -2364,6 +2393,8 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         }
 
         _disposed = true;
+        _favoritesMenuHook?.Detach();
+        _favoritesMenuHook = null;
         DestroyBrowser();
         TabIcon?.Dispose();
         TabIcon = null;

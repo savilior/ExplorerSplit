@@ -65,6 +65,22 @@ internal sealed class AppSettings
     /// <summary>System (follow Windows), Light or Dark.</summary>
     public ThemeMode Theme { get; set; } = ThemeMode.System;
 
+    /// <summary>
+    /// The navigation pane shows Explorer2's Favorites (with groups) instead of the Quick access
+    /// pins. Read when a window opens, so a change applies to new windows.
+    /// </summary>
+    public bool FavoritesSection { get; set; } = true;
+
+    internal static bool FavoritesSectionEnabled { get; set; } = FavoritesOverride ?? true;
+
+    /// <summary>EXPLORER2_FAVORITES=0|1 overrides the setting (for testing, like EXPLORER2_THEME).</summary>
+    private static bool? FavoritesOverride => Environment.GetEnvironmentVariable("EXPLORER2_FAVORITES") switch
+    {
+        "0" => false,
+        "1" => true,
+        _ => null
+    };
+
     public static AppSettings Load()
     {
         MigrateLegacySettingsIfNeeded();
@@ -88,6 +104,7 @@ internal sealed class AppSettings
                     }
 
                     GlobalDetailsAndNoGroupEnabled = loaded.EnforceGlobalDetailsAndNoGroup;
+                    FavoritesSectionEnabled = FavoritesOverride ?? loaded.FavoritesSection;
                     return loaded;
                 }
             }
@@ -105,6 +122,7 @@ internal sealed class AppSettings
     public void Save()
     {
         GlobalDetailsAndNoGroupEnabled = EnforceGlobalDetailsAndNoGroup;
+        FavoritesSectionEnabled = FavoritesOverride ?? FavoritesSection;
         try
         {
             Directory.CreateDirectory(SettingsDirectory);

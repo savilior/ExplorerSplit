@@ -6,7 +6,7 @@ using Explorer2.Interop;
 namespace Explorer2.UI;
 
 [ComVisible(true)]
-internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpaceTreeControlEvents, IPinnedRoots
+internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpaceTreeControlEvents, IPinnedRoots, IFavoritesHost
 {
     private const int E_NOTIMPL = unchecked((int)0x80004001);
     private const uint WM_PAINT = 0x000F;
@@ -74,7 +74,21 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
 
     public event Action<string>? SourceSelected;
 
-    public LeftSourceTreePane(bool isDarkMode)
+    /// <summary>A favorite's "open in new tab" (its icon, middle-click, the menu).</summary>
+    public event Action<string>? OpenInNewTabRequested;
+
+    /// <summary>Opens a folder in the pane that isn't active; null when there is none (split mode off).</summary>
+    public Func<Action<string>?>? OtherPaneOpener { get; set; }
+
+    // Favorites mode: Home, Gallery and the Favorites list are drawn by _favoritesView above the
+    // folder tree, which then starts at OneDrive. Off: the native layout with the Quick access pins.
+    private readonly FavoritesView? _favoritesView;
+    private readonly FavoritesFlyouts? _flyouts;
+    private const int RowHeight = 28;
+
+    private bool FavoritesMode => _favoritesView is not null;
+
+    public LeftSourceTreePane(bool isDarkMode, bool useFavorites = false)
     {
         _isDarkMode = isDarkMode;
         _bgColor = isDarkMode ? Color.FromArgb(25, 25, 28) : Color.FromArgb(255, 255, 255);
@@ -112,7 +126,98 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         };
 
         Controls.Add(_hostPanel);
+        if (useFavorites)
+        {
+            _flyouts = new FavoritesFlyouts(this);
+            _favoritesView = new FavoritesView(this, null, RowHeight) { Dock = DockStyle.Top };
+            _favoritesView.ContentHeightChanged += LayoutFavorites;
+            Controls.Add(_favoritesView);
+            Resize += (_, _) => LayoutFavorites();
+            LayoutFavorites();
+        }
+
         Controls.Add(rightBorder);
+    }
+
+    /// <summary>The Favorites list takes the height its rows need, up to 60% of the pane (then it scrolls).</summary>
+    private void LayoutFavorites()
+    {
+        if (_favoritesView is null || _disposed)
+        {
+            return;
+        }
+
+        int max = Math.Max(RowHeight * 4, ClientSize.Height * 3 / 5);
+        int height = Math.Min(_favoritesView.ContentHeight, max);
+        if (_favoritesView.Height != height)
+        {
+            _favoritesView.Height = height;
+        }
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        if (FindForm() is { } form && _flyouts is not null)
+        {
+            // Switching to another window or moving this one closes the flyouts
+            form.Deactivate += (_, _) => BeginInvoke(() =>
+            {
+                if (!_disposed && Form.ActiveForm is not FavoritesFlyoutForm && !IsOwnedDialogActive(form))
+                {
+                    _flyouts.CloseAll();
+                }
+            });
+            form.Move += (_, _) => _flyouts.CloseAll();
+        }
+    }
+
+    private static bool IsOwnedDialogActive(Form form) =>
+        Form.ActiveForm is { } active && active != form && active.Owner == form;
+
+    // IFavoritesHost
+    bool IFavoritesHost.IsDarkMode => _isDarkMode;
+
+    Form? IFavoritesHost.OwnerForm => FindForm();
+
+    FavoritesFlyouts IFavoritesHost.Flyouts => _flyouts!;
+
+    void IFavoritesHost.OpenFolder(string path)
+    {
+        if (!_disposed)
+        {
+            SourceSelected?.Invoke(path);
+        }
+    }
+
+    void IFavoritesHost.OpenInNewTab(string path)
+    {
+        if (!_disposed)
+        {
+            OpenInNewTabRequested?.Invoke(path);
+        }
+    }
+
+    Action<string>? IFavoritesHost.OpenInOtherPane => OtherPaneOpener?.Invoke();
+
+    /// <summary>Down arrow on the last favorite: to the first folder of the tree (it opens, as arrow keys in the tree do).</summary>
+    void IFavoritesHost.FocusTreeBelow()
+    {
+        if (_sysTreeHwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        IntPtr first = NativeMethods.SendMessage(_sysTreeHwnd, TVM_GETNEXTITEM, new IntPtr(TVGN_ROOT), IntPtr.Zero);
+        if (first == IntPtr.Zero)
+        {
+            return;
+        }
+
+        _favoritesView?.ClearSelection();
+        NativeMethods.SetFocus(_sysTreeHwnd);
+        _lastUserInputTick = Environment.TickCount64;
+        NativeMethods.SendMessage(_sysTreeHwnd, TVM_SELECTITEM, new IntPtr(TVGN_CARET), first);
     }
 
     private const uint NSTCIS_SELECTED = 0x0001;
@@ -168,16 +273,32 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
     /// </summary>
     /// <summary>True when the keyboard focus is in the tree (or <paramref name="hwnd"/> belongs to it).</summary>
     public bool ContainsWindow(IntPtr hwnd) =>
-        hwnd != IntPtr.Zero && _hostPanel.IsHandleCreated &&
-        (hwnd == _hostPanel.Handle || NativeMethods.IsChild(_hostPanel.Handle, hwnd));
+        hwnd != IntPtr.Zero && IsHandleCreated &&
+        (hwnd == Handle || NativeMethods.IsChild(Handle, hwnd));
 
-    /// <summary>True when the tree itself has the keyboard focus.</summary>
-    public bool HasKeyboardFocus => _sysTreeHwnd != IntPtr.Zero && NativeMethods.GetFocus() == _sysTreeHwnd;
+    /// <summary>True when the tree itself (or the Favorites list) has the keyboard focus.</summary>
+    public bool HasKeyboardFocus =>
+        (_sysTreeHwnd != IntPtr.Zero && NativeMethods.GetFocus() == _sysTreeHwnd) ||
+        (_favoritesView is { IsHandleCreated: true } && NativeMethods.GetFocus() == _favoritesView.Handle);
 
     /// <summary>Puts the keyboard focus in the tree, on the highlighted folder (Ctrl+Shift+E, Tab).</summary>
     public void FocusTree()
     {
-        if (_sysTreeHwnd == IntPtr.Zero || _disposed)
+        if (_disposed)
+        {
+            return;
+        }
+
+        // Favorites: the list when the active folder is highlighted there (or nothing in the tree is)
+        if (_favoritesView is not null &&
+            (_favoritesView.HasSelection || _sysTreeHwnd == IntPtr.Zero ||
+             NativeMethods.SendMessage(_sysTreeHwnd, TVM_GETNEXTITEM, new IntPtr(TVGN_CARET), IntPtr.Zero) == IntPtr.Zero))
+        {
+            _favoritesView.FocusList();
+            return;
+        }
+
+        if (_sysTreeHwnd == IntPtr.Zero)
         {
             return;
         }
@@ -196,10 +317,56 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
     public void SyncHighlightToPath(string? currentPath)
     {
         _highlightPath = currentPath;
+        if (_favoritesView is not null && !_disposed && (!_initialized || _nstc is null))
+        {
+            _favoritesView.SelectPath(currentPath); // the tree isn't there yet
+        }
+
         if (_initialized && _nstc is not null && !_disposed)
         {
             ApplyHighlight();
         }
+    }
+
+    /// <summary>
+    /// Favorites mode: the folder clicked in the tree stays highlighted there; otherwise a favorite
+    /// (or Home / Gallery) showing the folder gets the highlight and the tree none.
+    /// </summary>
+    /// <returns>True when the highlight is settled (no tree highlight needed).</returns>
+    private bool ApplyFavoritesHighlight()
+    {
+        if (_favoritesView is null || string.IsNullOrWhiteSpace(_highlightPath))
+        {
+            _favoritesView?.ClearSelection();
+            return false;
+        }
+
+        if (SelectedItemIs(_highlightPath))
+        {
+            _favoritesView.ClearSelection();
+            return true;
+        }
+
+        if (!_favoritesView.SelectPath(_highlightPath))
+        {
+            return false;
+        }
+
+        if (_sysTreeHwnd != IntPtr.Zero &&
+            NativeMethods.SendMessage(_sysTreeHwnd, TVM_GETNEXTITEM, new IntPtr(TVGN_CARET), IntPtr.Zero) != IntPtr.Zero)
+        {
+            _syncingSelection = true;
+            try
+            {
+                NativeMethods.SendMessage(_sysTreeHwnd, TVM_SELECTITEM, new IntPtr(TVGN_CARET), IntPtr.Zero);
+            }
+            finally
+            {
+                _syncingSelection = false;
+            }
+        }
+
+        return true;
     }
 
     private static bool ExpandToOpenFolder()
@@ -219,6 +386,11 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
     private void ApplyHighlight()
     {
         if (_nstc is null || string.IsNullOrWhiteSpace(_highlightPath))
+        {
+            return;
+        }
+
+        if (ApplyFavoritesHighlight())
         {
             return;
         }
@@ -389,16 +561,20 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
 
         // Populate roots matching native Windows 11 File Explorer Navigation Pane:
         // 1. Home (standalone top item, no expand chevron)
-        AppendShellRoot(
-            ExplorerDetector.HomeShellGuid,
-            0,
-            ShellBrowserInterop.NSTCRS_VISIBLE);
-
         // 2. Gallery (standalone top item, no expand chevron)
-        AppendShellRoot(
-            "::{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}",
-            0,
-            ShellBrowserInterop.NSTCRS_VISIBLE);
+        // In Favorites mode the Favorites list above the tree shows these two.
+        if (!FavoritesMode)
+        {
+            AppendShellRoot(
+                ExplorerDetector.HomeShellGuid,
+                0,
+                ShellBrowserInterop.NSTCRS_VISIBLE);
+
+            AppendShellRoot(
+                "::{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}",
+                0,
+                ShellBrowserInterop.NSTCRS_VISIBLE);
+        }
 
         // 3. OneDrive (if present)
         HashSet<string> addedPaths = new(StringComparer.OrdinalIgnoreCase);
@@ -413,9 +589,13 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         }
 
         // 4. Pinned Quick Access folders at root level (each with its own '>' expand chevron)
+        // (Favorites mode: the Favorites list replaces them)
         _oneDriveRootPath = addedPaths.FirstOrDefault();
         _firstPinnedRootIndex = CountRootItems();
-        InsertPinnedRoots();
+        if (!FavoritesMode)
+        {
+            InsertPinnedRoots();
+        }
 
         // 5. This PC (expanded to show Desktop, Downloads, Documents, Pictures, Music, Videos, and Drives)
         int thisPcIndex = CountRootItems();
@@ -430,7 +610,11 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             ShellBrowserInterop.SHCONTF_FOLDERS,
             ShellBrowserInterop.NSTCRS_VISIBLE);
 
-        ClearRootExpandoForStandaloneItems(2);
+        if (!FavoritesMode)
+        {
+            ClearRootExpandoForStandaloneItems(2);
+        }
+
         UpdatePinnedRootItems();
         _thisPcItem = GetRootItemAt(thisPcIndex);
 
@@ -440,9 +624,12 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             _treeSubclass.AssignHandle(_sysTreeHwnd);
         }
 
-        HookReorderDropTarget();
-        QuickAccessPins.StartWatching();
-        QuickAccessPins.Changed += OnQuickAccessPinsChanged;
+        if (!FavoritesMode)
+        {
+            HookReorderDropTarget();
+            QuickAccessPins.StartWatching();
+            QuickAccessPins.Changed += OnQuickAccessPinsChanged;
+        }
 
         _nstc.TreeAdvise(this, out _eventsCookie);
         SyncTreeBounds();
@@ -999,6 +1186,27 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
     {
         // A menu given here is added to the folder's own menu; the replacement is in OnAfterContextMenu
         ppv = IntPtr.Zero;
+        if (FavoritesMode && psi is not null && FavoritesDropTarget.PathOf(psi) is { } path)
+        {
+            try
+            {
+                // "Pin to Favorites" / "Unpin from Favorites"
+                IntPtr unknown = Marshal.GetIUnknownForObject(new FavoritesTreeMenu(path));
+                try
+                {
+                    return Marshal.QueryInterface(unknown, ref riid, out ppv);
+                }
+                finally
+                {
+                    Marshal.Release(unknown);
+                }
+            }
+            catch
+            {
+                ppv = IntPtr.Zero;
+            }
+        }
+
         return E_NOTIMPL;
     }
 
@@ -1189,6 +1397,7 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
         {
             _treeSubclass?.ReleaseHandle();
             _treeSubclass = null;
+            _flyouts?.Dispose();
             DestroyTreeControl();
         }
 
@@ -1339,6 +1548,30 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             if (m.Msg is WmKeyDown or WmChar or (int)WM_LBUTTONDOWN or (int)WM_LBUTTONDBLCLK)
             {
                 _owner._lastUserInputTick = Environment.TickCount64;
+            }
+
+            // Up arrow on the tree's first folder: on to the last favorite above it
+            if (m.Msg == WmKeyDown && (Keys)m.WParam.ToInt32() == Keys.Up && _owner._favoritesView is { } favorites &&
+                Control.ModifierKeys == Keys.None)
+            {
+                IntPtr caret = NativeMethods.SendMessage(Handle, TVM_GETNEXTITEM, new IntPtr(TVGN_CARET), IntPtr.Zero);
+                IntPtr first = NativeMethods.SendMessage(Handle, TVM_GETNEXTITEM, new IntPtr(TVGN_ROOT), IntPtr.Zero);
+                if (caret != IntPtr.Zero && caret == first)
+                {
+                    _owner._syncingSelection = true;
+                    try
+                    {
+                        NativeMethods.SendMessage(Handle, TVM_SELECTITEM, new IntPtr(TVGN_CARET), IntPtr.Zero);
+                    }
+                    finally
+                    {
+                        _owner._syncingSelection = false;
+                    }
+
+                    favorites.FocusList(last: true);
+                    m.Result = IntPtr.Zero;
+                    return;
+                }
             }
 
             if (m.Msg is (int)WM_LBUTTONDOWN or (int)WM_LBUTTONDBLCLK)

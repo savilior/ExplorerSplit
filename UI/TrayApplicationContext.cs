@@ -25,6 +25,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _defaultSplitModeItem;
     private readonly ToolStripMenuItem _globalDetailsNoGroupItem;
     private readonly ToolStripMenuItem _titleBarButtonItem;
+    private readonly ToolStripMenuItem _favoritesItem;
     private readonly ToolStripMenuItem _hotkeyItem;
     private readonly ToolStripMenuItem _sameAsLeftItem;
     private readonly ToolStripMenuItem _homeItem;
@@ -59,6 +60,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _defaultSplitModeItem = new ToolStripMenuItem("Start in Split Mode by Default", null, OnToggleDefaultSplitMode);
         _globalDetailsNoGroupItem = new ToolStripMenuItem("Always Use Details View & Group: None", null, OnToggleGlobalDetailsAndNoGroup);
         _titleBarButtonItem = new ToolStripMenuItem("Enable Title Bar Toggle Button", null, OnToggleTitleBarButton);
+        _favoritesItem = new ToolStripMenuItem("Favorites in Navigation Pane", null, OnToggleFavorites);
         _hotkeyItem = new ToolStripMenuItem(string.Empty, null, OnConfigureHotkey);
 
         _sameAsLeftItem = new ToolStripMenuItem("Same as Left", null, (_, _) => SetRightPaneMode(RightPanePathMode.SameAsLeft));
@@ -86,6 +88,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _defaultSplitModeItem,
             _globalDetailsNoGroupItem,
             _titleBarButtonItem,
+            _favoritesItem,
             _hotkeyItem,
             rightPaneMenu,
             themeMenu,
@@ -314,6 +317,23 @@ internal sealed class TrayApplicationContext : ApplicationContext
         RefreshOverlayAndHotkey();
     }
 
+    /// <summary>
+    /// Favorites (on) or the native Quick access pins (off) in the navigation pane. Like the theme it
+    /// applies to new windows.
+    /// </summary>
+    private void OnToggleFavorites(object? sender, EventArgs e)
+    {
+        _settings.FavoritesSection = !_settings.FavoritesSection;
+        _settings.Save();
+        SyncMenuState();
+
+        if (_splitManager.ActivePairCount > 0)
+        {
+            _notifyIcon.ShowBalloonTip(4000, "Explorer2",
+                "The navigation pane change applies to new windows. Reopen open windows to see it.", ToolTipIcon.Info);
+        }
+    }
+
     private void OnConfigureHotkey(object? sender, EventArgs e)
     {
         using HotkeyConfigDialog dialog = new(_settings.HotkeyModifiers, _settings.HotkeyKey);
@@ -390,6 +410,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _defaultSplitModeItem.Checked = _settings.DefaultStartInSplitMode;
         _globalDetailsNoGroupItem.Checked = AppSettings.GlobalDetailsAndNoGroupEnabled;
         _titleBarButtonItem.Checked = _settings.ShowTitleBarButton;
+        _favoritesItem.Checked = _settings.FavoritesSection;
         _hotkeyItem.Text = $"Configure Hotkey ({_settings.FormatHotkey()})...";
 
         _sameAsLeftItem.Checked = _settings.DefaultRightPaneMode == RightPanePathMode.SameAsLeft;
