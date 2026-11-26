@@ -29,7 +29,8 @@ internal interface IFavoritesHost
 /// <summary>
 /// The Favorites list, drawn to look like the navigation tree under it (same rows, icons, arrows and
 /// hover / selection colors, taken from the tree's theme). At the top of the navigation pane it also
-/// shows fixed rows (Home, Gallery, Recycle Bin) that can't be moved or unpinned; a group's flyout shows the group's entries.
+/// shows the fixed rows of <see cref="TopSection"/> (Home, Gallery, Recycle Bin, Desktop, Downloads, Documents):
+/// they can't be unpinned, only dragged among themselves or turned off from the tray menu. A group's flyout shows the group's entries.
 ///
 /// Mouse: click opens (a folder in the active pane, a file with its app), the icon at the right of a
 /// folder opens it in a new tab, the arrow or a click on a group opens it in place, resting on a
@@ -38,7 +39,6 @@ internal interface IFavoritesHost
 /// </summary>
 internal sealed class FavoritesView : Control
 {
-    private const string GalleryPath = "::{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}";
     private const int HoverOpenDelay = 350;
     private const int DragHoverOpenDelay = 600;
 
@@ -50,6 +50,9 @@ internal sealed class FavoritesView : Control
         public FavoriteNode? Node;
         public string? Path;
         public string? FixedName;
+
+        /// <summary>Id of a fixed row (see <see cref="TopSection"/>).</summary>
+        public string? FixedId;
         public int Level;
 
         /// <summary>The group whose list holds this row's node (null = the view's own list).</summary>
@@ -97,6 +100,11 @@ internal sealed class FavoritesView : Control
     /// <summary>The entry being dragged by one of the Favorites lists (internal reordering), or null.</summary>
     internal static FavoriteNode? DraggedNode { get; private set; }
 
+    /// <summary>The fixed top row being dragged to reorder the top section, or null.</summary>
+    internal static string? DraggedFixedId { get; private set; }
+
+    private int _fixedCount;
+
     /// <summary>The flyout this list is in, or null for the list in the navigation pane.</summary>
     public FavoritesFlyoutForm? Flyout { get; set; }
 
@@ -142,6 +150,11 @@ internal sealed class FavoritesView : Control
         };
 
         Favorites.Changed += OnFavoritesChanged;
+        if (_isTopList)
+        {
+            TopSection.Changed += OnFavoritesChanged;
+        }
+
         FavoritesShellInfo.Updated += OnShellInfoUpdated;
         Rebuild();
     }
@@ -188,11 +201,13 @@ internal sealed class FavoritesView : Control
         _rows.Clear();
         if (_isTopList)
         {
-            _rows.Add(new Row { Kind = RowKind.Fixed, Path = ExplorerDetector.HomeShellGuid, FixedName = "Home" });
-            _rows.Add(new Row { Kind = RowKind.Fixed, Path = GalleryPath, FixedName = "Gallery" });
-            _rows.Add(new Row { Kind = RowKind.Fixed, Path = Favorites.RecycleBinPath, FixedName = "Recycle Bin" });
+            foreach (TopSection.Item item in TopSection.Visible)
+            {
+                _rows.Add(new Row { Kind = RowKind.Fixed, Path = item.Path, FixedName = item.Name, FixedId = item.Id });
+            }
         }
 
+        _fixedCount = _rows.Count;
         AddRows(OwnList, _group, 0);
         if (OwnList.Count == 0)
         {
@@ -230,7 +245,7 @@ internal sealed class FavoritesView : Control
         }
     }
 
-    private int FixedRowCount => _isTopList ? 3 : 0;
+    private int FixedRowCount => _fixedCount;
 
     /// <summary>Height the rows need (the pane gives the list at most part of its height; the rest scrolls).</summary>
     public int ContentHeight => _padTop * 2 + _rows.Count * _rowHeight + (_isTopList ? 1 : 0);
@@ -485,7 +500,7 @@ internal sealed class FavoritesView : Control
             PaintRow(g, i, row, showChevrons);
         }
 
-        if (_isTopList && _rows.Count > FixedRowCount)
+        if (_isTopList && FixedRowCount > 0 && _rows.Count > FixedRowCount)
         {
             // Dividers as File Explorer draws them between the navigation pane's groups
             using Pen divider = new(_dividerColor, 1f);
@@ -686,6 +701,12 @@ internal sealed class FavoritesView : Control
                 StartDrag(node);
                 return;
             }
+
+            if (_rows[row].FixedId is { } fixedId)
+            {
+                StartFixedDrag(fixedId);
+                return;
+            }
         }
 
         int index = RowAt(e.Y);
@@ -769,13 +790,10 @@ internal sealed class FavoritesView : Control
         _mouseDownPoint = e.Location;
         _mouseDownRow = RowAt(e.Y);
         _mouseDownButton = e.Button;
-        if (_mouseDownRow >= 0 && _rows[_mouseDownRow].Kind is RowKind.Hint or RowKind.Fixed)
+        if (_mouseDownRow >= 0 && _rows[_mouseDownRow].Kind == RowKind.Hint)
         {
-            // Fixed rows and the hint can't be dragged, but they can be clicked
-            if (_rows[_mouseDownRow].Kind == RowKind.Hint)
-            {
-                _mouseDownRow = -1;
-            }
+            // The hint can't be dragged or clicked (fixed rows are dragged only among themselves)
+            _mouseDownRow = -1;
         }
     }
 
@@ -1266,11 +1284,55 @@ internal sealed class FavoritesView : Control
         }
     }
 
+    private void StartFixedDrag(string id)
+    {
+        DraggedFixedId = id;
+        try
+        {
+            DataObject data = new();
+            data.SetData("Explorer2.TopRow", true);
+            DoDragDrop(data, DragDropEffects.Move);
+        }
+        catch
+        {
+            // Drag cancelled by the system
+        }
+        finally
+        {
+            DraggedFixedId = null;
+            _hot = -1;
+            if (!IsDisposed)
+            {
+                Invalidate();
+            }
+        }
+    }
+
+    /// <summary>A fixed top row being dragged goes only between the other fixed rows of the top list.</summary>
+    private DropPlan PlanFixedDrop(Point client)
+    {
+        int index = RowAt(client.Y);
+        if (!_isTopList || FixedRowCount == 0 || index < 0 || index >= FixedRowCount)
+        {
+            return default;
+        }
+
+        int top = _padTop + index * _rowHeight;
+        bool after = (client.Y + _scrollY - top) / (double)_rowHeight > 0.5;
+        int at = after ? index + 1 : index;
+        return new DropPlan(FavoritesViewDropAction.Insert, null, at, _padTop + at * _rowHeight - (at == FixedRowCount ? 1 : 0), 0, -1);
+    }
+
     // ---------------------------------------------------------------- dropping (called by FavoritesDropTarget)
 
     /// <summary>Where a drop at <paramref name="client"/> would go. <paramref name="folderDrop"/>: the drag can go into a folder.</summary>
     private DropPlan PlanDrop(Point client, bool external)
     {
+        if (DraggedFixedId is not null)
+        {
+            return PlanFixedDrop(client);
+        }
+
         FavoriteNode? dragged = DraggedNode;
         int index = RowAt(client.Y);
         if (index < 0)
@@ -1291,9 +1353,10 @@ internal sealed class FavoritesView : Control
             case RowKind.Hint:
                 return Valid(new DropPlan(FavoritesViewDropAction.Insert, _group, 0, top, 0, -1));
             case RowKind.Fixed:
-                // Files dropped on the Recycle Bin are deleted, as in File Explorer
+                // Files dropped on the Recycle Bin are deleted, as in File Explorer; on Desktop,
+                // Downloads or Documents they go into the folder
                 bool lastFixed = index == FixedRowCount - 1;
-                if (external && dragged is null && Favorites.IsFixedPath(row.Path) && (!lastFixed || rel <= 0.75))
+                if (external && dragged is null && TopSection.AcceptsDrops(row.Path) && (!lastFixed || rel <= 0.75))
                 {
                     return new DropPlan(FavoritesViewDropAction.IntoFolder, null, 0, 0, 0, index);
                 }
@@ -1409,8 +1472,19 @@ internal sealed class FavoritesView : Control
         Invalidate();
 
         FavoriteNode? dragged = DraggedNode;
+        string? draggedFixed = DraggedFixedId;
         BeginInvoke(() =>
         {
+            if (draggedFixed is not null)
+            {
+                if (plan.Action == FavoritesViewDropAction.Insert)
+                {
+                    TopSection.MoveVisible(draggedFixed, plan.Index);
+                }
+
+                return;
+            }
+
             switch (plan.Action)
             {
                 case FavoritesViewDropAction.Insert when dragged is not null:
@@ -1434,6 +1508,7 @@ internal sealed class FavoritesView : Control
         if (disposing)
         {
             Favorites.Changed -= OnFavoritesChanged;
+            TopSection.Changed -= OnFavoritesChanged;
             FavoritesShellInfo.Updated -= OnShellInfoUpdated;
             _hoverTimer.Dispose();
             _keyNavigateTimer.Dispose();

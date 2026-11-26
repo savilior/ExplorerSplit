@@ -45,7 +45,7 @@ internal static class ExplorerDetector
         }
     }
 
-    private static string? GetDownloadsPath()
+    internal static string? GetDownloadsPath()
     {
         Guid downloads = new("374DE290-123F-4565-9164-39C4925E467B");
         if (NativeMethods.SHGetKnownFolderPath(ref downloads, 0, IntPtr.Zero, out IntPtr pathPtr) != 0)

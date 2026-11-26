@@ -62,6 +62,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _globalDetailsNoGroupItem = new ToolStripMenuItem("Always Use Details View & Group: None", null, OnToggleGlobalDetailsAndNoGroup);
         _titleBarButtonItem = new ToolStripMenuItem("Enable Title Bar Toggle Button", null, OnToggleTitleBarButton);
         _favoritesItem = new ToolStripMenuItem("Favorites in Navigation Pane", null, OnToggleFavorites);
+        ToolStripMenuItem topSectionItem = new("Navigation Pane Top Section...", null, OnConfigureTopSection);
         _askCopyMoveItem = new ToolStripMenuItem("Ask Before F5 Copy / F6 Move", null, OnToggleAskCopyMove);
         _hotkeyItem = new ToolStripMenuItem(string.Empty, null, OnConfigureHotkey);
 
@@ -91,6 +92,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _globalDetailsNoGroupItem,
             _titleBarButtonItem,
             _favoritesItem,
+            topSectionItem,
             _askCopyMoveItem,
             _hotkeyItem,
             rightPaneMenu,
@@ -342,6 +344,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             _notifyIcon.ShowBalloonTip(4000, "Explorer2",
                 "The navigation pane change applies to new windows. Reopen open windows to see it.", ToolTipIcon.Info);
+        }
+    }
+
+    private void OnConfigureTopSection(object? sender, EventArgs e)
+    {
+        using TopSectionDialog dialog = new();
+        if (dialog.ShowDialog() == DialogResult.OK)
+        {
+            TopSection.SetHidden(dialog.HiddenIds);
         }
     }
 

@@ -94,6 +94,27 @@ internal sealed class AppSettings
 
     private static bool _askBeforeCopyMove = true;
 
+    /// <summary>
+    /// Order of the navigation pane's top rows (ids from <see cref="Core.TopSection"/>; null = the
+    /// default order). Shared by every AppSettings object, like <see cref="AskBeforeCopyMove"/>.
+    /// </summary>
+    public List<string>? TopSectionOrder
+    {
+        get => StoredTopSectionOrder;
+        set => StoredTopSectionOrder = value;
+    }
+
+    /// <summary>Top rows turned off in the tray menu's "Navigation Pane Top Section..." dialog.</summary>
+    public List<string>? TopSectionHidden
+    {
+        get => StoredTopSectionHidden;
+        set => StoredTopSectionHidden = value;
+    }
+
+    internal static List<string>? StoredTopSectionOrder { get; private set; }
+
+    internal static List<string>? StoredTopSectionHidden { get; private set; }
+
     public static AppSettings Load()
     {
         MigrateLegacySettingsIfNeeded();

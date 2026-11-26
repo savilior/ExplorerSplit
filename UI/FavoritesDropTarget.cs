@@ -52,7 +52,7 @@ internal sealed class FavoritesDropTarget : ShellBrowserInterop.IDropTarget
             Marshal.AddRef(_dataObject);
         }
 
-        _external = FavoritesView.DraggedNode is null;
+        _external = FavoritesView.DraggedNode is null && FavoritesView.DraggedFixedId is null;
         _paths = _external ? GetPaths(pDataObj) : new List<string>();
         return Over(grfKeyState, pt, ref pdwEffect);
     }

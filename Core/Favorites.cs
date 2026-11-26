@@ -135,9 +135,10 @@ internal static class Favorites
     public const string RecycleBinPath = "::{645FF040-5081-101B-9F08-00AA002F954E}";
 
     /// <summary>
-    /// One-time changes to the stored list, remembered in the file next to it. "RecycleBinFixed":
-    /// the Recycle Bin moved from the list to the fixed rows at the top of the navigation pane (with
-    /// Home and Gallery), so the entry earlier versions added to the list is taken out.
+    /// One-time changes to the stored list, remembered in the file next to it. Each takes out entries
+    /// for places that moved to the fixed rows at the top of the navigation pane (<see cref="TopSection"/>):
+    /// "RecycleBinFixed" the Recycle Bin (at every level), "FoldersFixed" Desktop, Downloads and
+    /// Documents (top level only; entries put in a group stay).
     /// </summary>
     private static void AddDefaultsOnce()
     {
@@ -147,19 +148,30 @@ internal static class Favorites
             HashSet<string> done = File.Exists(markerPath)
                 ? File.ReadAllLines(markerPath).Select(l => l.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (done.Contains("RecycleBinFixed"))
+            bool changed = false;
+            bool marked = false;
+            if (done.Add("RecycleBinFixed"))
             {
-                return;
+                changed |= RemovePaths(_roots!, new[] { RecycleBinPath }, recursive: true);
+                marked = true;
             }
 
-            if (RemoveFixedPaths(_roots!))
+            if (done.Add("FoldersFixed"))
+            {
+                changed |= RemovePaths(_roots!, TopSection.FolderPaths.ToList(), recursive: false);
+                marked = true;
+            }
+
+            if (changed)
             {
                 Save();
             }
 
-            done.Add("RecycleBinFixed");
-            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(markerPath)!);
-            File.WriteAllLines(markerPath, done);
+            if (marked)
+            {
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(markerPath)!);
+                File.WriteAllLines(markerPath, done);
+            }
         }
         catch
         {
@@ -167,15 +179,18 @@ internal static class Favorites
         }
     }
 
-    /// <summary>Paths always shown above the list (Home and Gallery are not stored, so only the Recycle Bin).</summary>
-    public static bool IsFixedPath(string? path) => SamePath(path, RecycleBinPath);
+    /// <summary>Paths shown as fixed rows above the list (a row turned off can be pinned in the list instead).</summary>
+    public static bool IsFixedPath(string? path) => TopSection.IsShownPath(path);
 
-    private static bool RemoveFixedPaths(List<FavoriteNode> list)
+    private static bool RemovePaths(List<FavoriteNode> list, IReadOnlyCollection<string> paths, bool recursive)
     {
-        bool removed = list.RemoveAll(n => !n.IsGroup && IsFixedPath(n.Path)) > 0;
-        foreach (FavoriteNode group in list.Where(n => n.IsGroup))
+        bool removed = list.RemoveAll(n => !n.IsGroup && paths.Any(p => SamePath(n.Path, p))) > 0;
+        if (recursive)
         {
-            removed |= RemoveFixedPaths(group.Children!);
+            foreach (FavoriteNode group in list.Where(n => n.IsGroup))
+            {
+                removed |= RemovePaths(group.Children!, paths, recursive: true);
+            }
         }
 
         return removed;
