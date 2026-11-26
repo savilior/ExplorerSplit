@@ -70,6 +70,7 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
     private bool _initialized;
     private bool _disposed;
     private FileViewFavoritesMenuHook? _favoritesMenuHook;
+    private FileViewFocusBorder? _focusBorder;
 
     // Shell property-bag names keep the pre-rename identifiers so per-folder view state
     // saved by earlier versions (when the app was named ExplorerSplit) is preserved.
@@ -2073,6 +2074,8 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         const int UIS_CLEAR = 2;
         const int UISF_HIDEFOCUS = 0x1;
 
+        _focusBorder?.Update(); // the cursor is about to move without the view seeing a key
+
         if (_browser is null || _disposed || _keyboardCuesShown)
         {
             return;
@@ -2224,6 +2227,24 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
             }
         }
 
+        // A clear border around the current item
+        if (!_disposed && psv is ShellBrowserInterop.IShellView shownView)
+        {
+            try
+            {
+                if (shownView.GetWindow(out IntPtr shownHwnd) == 0 && shownHwnd != IntPtr.Zero)
+                {
+                    _focusBorder?.Detach();
+                    _focusBorder = null;
+                    AttachFocusBorder(shownHwnd, attemptsLeft: 20);
+                }
+            }
+            catch
+            {
+                // Cosmetic only
+            }
+        }
+
         if (!_disposed && HostPanel.IsHandleCreated)
         {
             if (HostPanel.InvokeRequired)
@@ -2237,6 +2258,33 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         }
 
         return 0;
+    }
+
+    /// <summary>The view creates its item window a moment after the view: look for it a few times.</summary>
+    private void AttachFocusBorder(IntPtr viewHwnd, int attemptsLeft)
+    {
+        if (_disposed || _focusBorder is not null || !NativeMethods.IsWindow(viewHwnd))
+        {
+            return;
+        }
+
+        if (HostPanel.InvokeRequired)
+        {
+            HostPanel.BeginInvoke(() => AttachFocusBorder(viewHwnd, attemptsLeft));
+            return;
+        }
+
+        _focusBorder = FileViewFocusBorder.TryAttach(viewHwnd);
+        if (_focusBorder is null && attemptsLeft > 0 && HostPanel.IsHandleCreated)
+        {
+            Task.Delay(100).ContinueWith(_ =>
+            {
+                if (!_disposed && HostPanel.IsHandleCreated)
+                {
+                    HostPanel.BeginInvoke(() => AttachFocusBorder(viewHwnd, attemptsLeft - 1));
+                }
+            });
+        }
     }
 
     int ShellBrowserInterop.IExplorerBrowserEvents.OnNavigationComplete(IntPtr pidlFolder)
@@ -2395,6 +2443,8 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         _disposed = true;
         _favoritesMenuHook?.Detach();
         _favoritesMenuHook = null;
+        _focusBorder?.Detach();
+        _focusBorder = null;
         DestroyBrowser();
         TabIcon?.Dispose();
         TabIcon = null;
