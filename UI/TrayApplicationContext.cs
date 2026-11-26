@@ -26,6 +26,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ToolStripMenuItem _globalDetailsNoGroupItem;
     private readonly ToolStripMenuItem _titleBarButtonItem;
     private readonly ToolStripMenuItem _favoritesItem;
+    private readonly ToolStripMenuItem _askCopyMoveItem;
     private readonly ToolStripMenuItem _hotkeyItem;
     private readonly ToolStripMenuItem _sameAsLeftItem;
     private readonly ToolStripMenuItem _homeItem;
@@ -61,6 +62,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _globalDetailsNoGroupItem = new ToolStripMenuItem("Always Use Details View & Group: None", null, OnToggleGlobalDetailsAndNoGroup);
         _titleBarButtonItem = new ToolStripMenuItem("Enable Title Bar Toggle Button", null, OnToggleTitleBarButton);
         _favoritesItem = new ToolStripMenuItem("Favorites in Navigation Pane", null, OnToggleFavorites);
+        _askCopyMoveItem = new ToolStripMenuItem("Ask Before F5 Copy / F6 Move", null, OnToggleAskCopyMove);
         _hotkeyItem = new ToolStripMenuItem(string.Empty, null, OnConfigureHotkey);
 
         _sameAsLeftItem = new ToolStripMenuItem("Same as Left", null, (_, _) => SetRightPaneMode(RightPanePathMode.SameAsLeft));
@@ -89,6 +91,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _globalDetailsNoGroupItem,
             _titleBarButtonItem,
             _favoritesItem,
+            _askCopyMoveItem,
             _hotkeyItem,
             rightPaneMenu,
             themeMenu,
@@ -317,6 +320,14 @@ internal sealed class TrayApplicationContext : ApplicationContext
         RefreshOverlayAndHotkey();
     }
 
+    /// <summary>F5/F6 ask for the destination (on) or go straight to the other pane (off).</summary>
+    private void OnToggleAskCopyMove(object? sender, EventArgs e)
+    {
+        _settings.AskBeforeCopyMove = !_settings.AskBeforeCopyMove;
+        _settings.Save();
+        SyncMenuState();
+    }
+
     /// <summary>
     /// Favorites (on) or the native Quick access pins (off) in the navigation pane. Like the theme it
     /// applies to new windows.
@@ -411,6 +422,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _globalDetailsNoGroupItem.Checked = AppSettings.GlobalDetailsAndNoGroupEnabled;
         _titleBarButtonItem.Checked = _settings.ShowTitleBarButton;
         _favoritesItem.Checked = _settings.FavoritesSection;
+        _askCopyMoveItem.Checked = _settings.AskBeforeCopyMove;
         _hotkeyItem.Text = $"Configure Hotkey ({_settings.FormatHotkey()})...";
 
         _sameAsLeftItem.Checked = _settings.DefaultRightPaneMode == RightPanePathMode.SameAsLeft;

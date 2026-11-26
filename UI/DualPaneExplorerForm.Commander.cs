@@ -361,10 +361,26 @@ internal sealed partial class DualPaneExplorerForm
             ? $"\"{Path.GetFileName(sources[0].TrimEnd('\\'))}\""
             : $"{sources.Count} items";
 
-        using CommanderPromptDialog dialog = new(verb, $"{verb} {what} to:", defaultTarget, verb, _isDarkMode);
+        // "Don't ask" was ticked before: straight to the other pane's folder (Windows still asks
+        // before overwriting, and Ctrl+Z undoes it)
+        Configuration.AppSettings settings = Configuration.AppSettings.Load();
+        if (!settings.AskBeforeCopyMove && defaultTarget.Length > 0)
+        {
+            FileTransfer.Start(operation, sources, defaultTarget, Handle);
+            return;
+        }
+
+        using CommanderPromptDialog dialog = new(verb, $"{verb} {what} to:", defaultTarget, verb, _isDarkMode,
+            defaultTarget.Length > 0 ? "Don't ask again (turn back on in the tray menu)" : null);
         if (dialog.ShowDialog(this) != DialogResult.OK)
         {
             return;
+        }
+
+        if (dialog.IsChecked)
+        {
+            settings.AskBeforeCopyMove = false;
+            settings.Save();
         }
 
         string destination = Environment.ExpandEnvironmentVariables(dialog.InputText);

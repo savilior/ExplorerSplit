@@ -162,8 +162,8 @@ Toggle with **Ctrl+Shift+S** (changeable from the tray menu) or the **Split** bu
 | **F3** | View the file in the quick viewer (a folder is entered) |
 | **Shift+F3** | Open with the default app |
 | **F4** | Edit (the file's *Edit* command, or Notepad) |
-| **F5** | Copy the selection to the other pane's folder (asks for the destination first) |
-| **F6** | Move the selection to the other pane's folder (asks for the destination first) |
+| **F5** | Copy the selection to the other pane's folder (asks for the destination first; tick **Don't ask again** to skip that) |
+| **F6** | Move the selection to the other pane's folder (asks for the destination first; tick **Don't ask again** to skip that) |
 | **Shift+F6** | Rename |
 | **F7** | New folder (asks for the name) |
 | **F8** | Delete to the Recycle Bin |
@@ -200,6 +200,7 @@ Click **Preview** in the command bar. It uses the same preview handlers as File 
 | **Always Use Details View & Group: None** | Forces Details view without grouping in every folder |
 | **Enable Title Bar Toggle Button** | Shows a split button on native File Explorer windows |
 | **Favorites in Navigation Pane** | On (default): the navigation pane shows Explorer2's [Favorites](#favorites). Off: File Explorer's Quick access pins. New windows use it |
+| **Ask Before F5 Copy / F6 Move** | On (default): F5/F6 ask for the destination. Off (also set by **Don't ask again** in that dialog): they copy/move straight to the other pane. Windows still asks before overwriting, and Ctrl+Z undoes |
 | **Hotkey** | Changes the split-mode hotkey (default **Ctrl+Shift+S**) |
 | **Default Right-Pane Path** | What the right pane opens: same folder as the left, Home, or a custom folder |
 | **Theme** | **Use Windows Setting** (default), **Light** or **Dark**. New windows use it; reopen open windows to see a change |

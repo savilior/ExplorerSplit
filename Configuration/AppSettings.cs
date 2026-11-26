@@ -81,6 +81,19 @@ internal sealed class AppSettings
         _ => null
     };
 
+    /// <summary>
+    /// F5 Copy / F6 Move ask for the destination first (off: they go straight to the other pane's
+    /// folder). Shared by every AppSettings object, so the dialog's "Don't ask" and the tray menu
+    /// never overwrite each other.
+    /// </summary>
+    public bool AskBeforeCopyMove
+    {
+        get => _askBeforeCopyMove;
+        set => _askBeforeCopyMove = value;
+    }
+
+    private static bool _askBeforeCopyMove = true;
+
     public static AppSettings Load()
     {
         MigrateLegacySettingsIfNeeded();

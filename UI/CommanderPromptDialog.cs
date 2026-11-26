@@ -14,7 +14,11 @@ internal sealed class CommanderPromptDialog : Form
         Configuration.AppTheme.AllowDarkForWindowTree(Handle); // dark title bar in dark mode
     }
 
-    public CommanderPromptDialog(string title, string message, string initialText, string okText, bool isDarkMode)
+    private readonly CheckBox? _checkBox;
+
+    /// <param name="checkBoxText">Optional checkbox at the bottom left (F5/F6: "Don't ask again").</param>
+    public CommanderPromptDialog(string title, string message, string initialText, string okText, bool isDarkMode,
+        string? checkBoxText = null)
     {
         Color bg = isDarkMode ? Color.FromArgb(40, 40, 46) : Color.FromArgb(243, 243, 246);
         Color fieldBg = isDarkMode ? Color.FromArgb(28, 28, 32) : Color.White;
@@ -84,6 +88,20 @@ internal sealed class CommanderPromptDialog : Form
         Controls.Add(okButton);
         Controls.Add(cancelButton);
 
+        if (checkBoxText is not null)
+        {
+            _checkBox = new CheckBox
+            {
+                Text = checkBoxText,
+                AutoSize = true,
+                Location = new Point(16, 90),
+                ForeColor = fg,
+                BackColor = bg,
+                FlatStyle = isDarkMode ? FlatStyle.Flat : FlatStyle.Standard
+            };
+            Controls.Add(_checkBox);
+        }
+
         AcceptButton = okButton;
         CancelButton = cancelButton;
 
@@ -95,6 +113,8 @@ internal sealed class CommanderPromptDialog : Form
     }
 
     public string InputText => _input.Text.Trim();
+
+    public bool IsChecked => _checkBox?.Checked == true;
 
     protected override void Dispose(bool disposing)
     {
