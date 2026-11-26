@@ -135,9 +135,9 @@ internal static class Favorites
     public const string RecycleBinPath = "::{645FF040-5081-101B-9F08-00AA002F954E}";
 
     /// <summary>
-    /// Entries Explorer2 adds to the list once (neither Windows nor its pins have them): the Recycle
-    /// Bin, at the end. The user can move or unpin it like any favorite; it is not added back. The
-    /// file next to the list remembers what was already added.
+    /// One-time changes to the stored list, remembered in the file next to it. "RecycleBinFixed":
+    /// the Recycle Bin moved from the list to the fixed rows at the top of the navigation pane (with
+    /// Home and Gallery), so the entry earlier versions added to the list is taken out.
     /// </summary>
     private static void AddDefaultsOnce()
     {
@@ -147,25 +147,38 @@ internal static class Favorites
             HashSet<string> done = File.Exists(markerPath)
                 ? File.ReadAllLines(markerPath).Select(l => l.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (done.Contains("RecycleBin"))
+            if (done.Contains("RecycleBinFixed"))
             {
                 return;
             }
 
-            if (!ContainsAnywhere(RecycleBinPath))
+            if (RemoveFixedPaths(_roots!))
             {
-                _roots!.Add(FavoriteNode.Shortcut(RecycleBinPath));
                 Save();
             }
 
-            done.Add("RecycleBin");
+            done.Add("RecycleBinFixed");
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(markerPath)!);
             File.WriteAllLines(markerPath, done);
         }
         catch
         {
-            // Not added this time; tried again next start
+            // Tried again next start
         }
+    }
+
+    /// <summary>Paths always shown above the list (Home and Gallery are not stored, so only the Recycle Bin).</summary>
+    public static bool IsFixedPath(string? path) => SamePath(path, RecycleBinPath);
+
+    private static bool RemoveFixedPaths(List<FavoriteNode> list)
+    {
+        bool removed = list.RemoveAll(n => !n.IsGroup && IsFixedPath(n.Path)) > 0;
+        foreach (FavoriteNode group in list.Where(n => n.IsGroup))
+        {
+            removed |= RemoveFixedPaths(group.Children!);
+        }
+
+        return removed;
     }
 
     public static bool SamePath(string? a, string? b) =>
@@ -257,7 +270,7 @@ internal static class Favorites
         int added = 0;
         foreach (string path in paths)
         {
-            if (string.IsNullOrWhiteSpace(path) || list.Any(n => SamePath(n.Path, path)))
+            if (string.IsNullOrWhiteSpace(path) || IsFixedPath(path) || list.Any(n => SamePath(n.Path, path)))
             {
                 continue;
             }

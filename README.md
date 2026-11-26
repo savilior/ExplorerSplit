@@ -135,7 +135,7 @@ A new window starts with the keyboard in the file list.
 
 ### Favorites
 
-The top of the navigation pane shows Home, Gallery and your **Favorites**, in place of File Explorer's Quick access pins. The first time it starts with a copy of your Quick access pins; after that it is Explorer2's own list (Quick access itself is never changed). Explorer2 also adds the **Recycle Bin** at the end once (drop files on it to delete them; right-click → **Empty Recycle Bin**); move or unpin it like any favorite. It is saved in `%APPDATA%\Explorer2\favorites.json` and shared by all Explorer2 windows.
+The top of the navigation pane shows **Home**, **Gallery** and the **Recycle Bin** (always there; drop files on the Recycle Bin to delete them, right-click → **Empty Recycle Bin**), a divider, then your **Favorites**, in place of File Explorer's Quick access pins. The first time it starts with a copy of your Quick access pins; after that it is Explorer2's own list (Quick access itself is never changed). It is saved in `%APPDATA%\Explorer2\favorites.json` and shared by all Explorer2 windows.
 
 | To | Do |
 |---|---|

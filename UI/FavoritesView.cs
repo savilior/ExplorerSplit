@@ -29,7 +29,7 @@ internal interface IFavoritesHost
 /// <summary>
 /// The Favorites list, drawn to look like the navigation tree under it (same rows, icons, arrows and
 /// hover / selection colors, taken from the tree's theme). At the top of the navigation pane it also
-/// shows Home and Gallery; a group's flyout shows the group's entries.
+/// shows fixed rows (Home, Gallery, Recycle Bin) that can't be moved or unpinned; a group's flyout shows the group's entries.
 ///
 /// Mouse: click opens (a folder in the active pane, a file with its app), the icon at the right of a
 /// folder opens it in a new tab, the arrow or a click on a group opens it in place, resting on a
@@ -190,6 +190,7 @@ internal sealed class FavoritesView : Control
         {
             _rows.Add(new Row { Kind = RowKind.Fixed, Path = ExplorerDetector.HomeShellGuid, FixedName = "Home" });
             _rows.Add(new Row { Kind = RowKind.Fixed, Path = GalleryPath, FixedName = "Gallery" });
+            _rows.Add(new Row { Kind = RowKind.Fixed, Path = Favorites.RecycleBinPath, FixedName = "Recycle Bin" });
         }
 
         AddRows(OwnList, _group, 0);
@@ -229,7 +230,7 @@ internal sealed class FavoritesView : Control
         }
     }
 
-    private int FixedRowCount => _isTopList ? 2 : 0;
+    private int FixedRowCount => _isTopList ? 3 : 0;
 
     /// <summary>Height the rows need (the pane gives the list at most part of its height; the rest scrolls).</summary>
     public int ContentHeight => _padTop * 2 + _rows.Count * _rowHeight + (_isTopList ? 1 : 0);
@@ -1290,7 +1291,14 @@ internal sealed class FavoritesView : Control
             case RowKind.Hint:
                 return Valid(new DropPlan(FavoritesViewDropAction.Insert, _group, 0, top, 0, -1));
             case RowKind.Fixed:
-                return index == FixedRowCount - 1 && rel > 0.5
+                // Files dropped on the Recycle Bin are deleted, as in File Explorer
+                bool lastFixed = index == FixedRowCount - 1;
+                if (external && dragged is null && Favorites.IsFixedPath(row.Path) && (!lastFixed || rel <= 0.75))
+                {
+                    return new DropPlan(FavoritesViewDropAction.IntoFolder, null, 0, 0, 0, index);
+                }
+
+                return lastFixed && rel > 0.5
                     ? Valid(new DropPlan(FavoritesViewDropAction.Insert, _group, 0, top + _rowHeight, 0, -1))
                     : default;
             case RowKind.Group:

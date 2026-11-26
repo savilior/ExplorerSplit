@@ -57,25 +57,54 @@ internal static class TaskbarJumpList
         {
             list = (ICustomDestinationList)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("77f10cf0-3db5-4966-b520-b7c54fd35ed6"))!)!;
             Guid iidArray = typeof(IObjectArray).GUID;
-            list.BeginList(out _, ref iidArray, out object removedObj);
+            list.BeginList(out uint slots, ref iidArray, out object removedObj);
             HashSet<string> removed = RemovedArguments(removedObj as IObjectArray);
             HashSet<string> used = new(StringComparer.OrdinalIgnoreCase);
             string exe = Environment.ProcessPath ?? Application.ExecutablePath;
 
+            List<(string Title, List<Entry> Entries)> categories = new();
             if (Configuration.AppSettings.FavoritesSectionEnabled)
             {
-                AppendCategory(list, "Favorites", Favorites.Roots.Where(n => !n.IsGroup), exe, removed, used);
+                categories.Add(("Favorites", Collect(Favorites.Roots.Where(n => !n.IsGroup), removed, used)));
                 foreach (FavoriteNode group in Favorites.Roots.Where(n => n.IsGroup))
                 {
-                    AppendCategory(list, string.IsNullOrWhiteSpace(group.Name) ? "Group" : group.Name!,
-                        Favorites.Flatten(group.Children!).Where(n => !n.IsGroup), exe, removed, used);
+                    categories.Add((string.IsNullOrWhiteSpace(group.Name) ? "Group" : group.Name!,
+                        Collect(Favorites.Flatten(group.Children!).Where(n => !n.IsGroup), removed, used)));
                 }
             }
 
             IEnumerable<FavoriteNode> recent = (_recentFolders?.Invoke() ?? Array.Empty<string>())
                 .Take(MaxRecent).Select(FavoriteNode.Shortcut);
-            AppendCategory(list, "Recent", recent, exe, removed, used);
+            List<Entry> recentEntries = Collect(recent, removed, used);
 
+            // The taskbar shows only as many items as its slot count (10 unless changed in the
+            // registry) and drops the categories past it. Share the slots so every heading shows:
+            // a few for Recent, the rest taken in turn by the Favorites headings.
+            int budget = Math.Max((int)slots, 1);
+            int recentShare = Math.Min(recentEntries.Count, categories.Count > 0 ? Math.Max(2, budget / 4) : budget);
+            int[] shares = new int[categories.Count];
+            int left = budget - recentShare;
+            for (bool progress = true; left > 0 && progress;)
+            {
+                progress = false;
+                for (int i = 0; i < categories.Count && left > 0; i++)
+                {
+                    if (shares[i] < categories[i].Entries.Count)
+                    {
+                        shares[i]++;
+                        left--;
+                        progress = true;
+                    }
+                }
+            }
+
+            recentShare = Math.Min(recentEntries.Count, recentShare + left);
+            for (int i = 0; i < categories.Count; i++)
+            {
+                AppendCategory(list, categories[i].Title, categories[i].Entries.Take(shares[i]), exe);
+            }
+
+            AppendCategory(list, "Recent", recentEntries.Take(recentShare), exe);
             list.CommitList();
         }
         catch
@@ -99,30 +128,44 @@ internal static class TaskbarJumpList
         }
     }
 
-    private static void AppendCategory(ICustomDestinationList list, string title, IEnumerable<FavoriteNode> nodes, string exe,
-        HashSet<string> removed, HashSet<string> used)
+    private readonly record struct Entry(string Path, string Arguments, string Name);
+
+    /// <summary>The nodes that can go in the list: existing folders, not removed by the user, not already listed.</summary>
+    private static List<Entry> Collect(IEnumerable<FavoriteNode> nodes, HashSet<string> removed, HashSet<string> used)
+    {
+        List<Entry> result = new();
+        foreach (FavoriteNode node in nodes)
+        {
+            string path = node.Path!;
+            string arguments = Quote(path);
+            FavoriteTargetInfo info = FavoritesShellInfo.Get(path);
+            if (result.Count >= MaxPerCategory || !info.IsFolder || !info.Exists || removed.Contains(arguments) || used.Contains(path))
+            {
+                continue;
+            }
+
+            string name = string.IsNullOrWhiteSpace(node.Name) ? info.DisplayName : node.Name!;
+            if (name.StartsWith("::", StringComparison.Ordinal))
+            {
+                continue; // not looked up yet: shown on the next rebuild
+            }
+
+            used.Add(path);
+            result.Add(new Entry(path, arguments, name));
+        }
+
+        return result;
+    }
+
+    private static void AppendCategory(ICustomDestinationList list, string title, IEnumerable<Entry> entries, string exe)
     {
         IObjectCollection items = (IObjectCollection)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("2d3468c1-36a7-43b6-ac24-d3f02fd9607a"))!)!;
         try
         {
             int count = 0;
-            foreach (FavoriteNode node in nodes)
+            foreach (Entry entry in entries)
             {
-                string path = node.Path!;
-                string arguments = Quote(path);
-                FavoriteTargetInfo info = FavoritesShellInfo.Get(path);
-                if (count >= MaxPerCategory || !info.IsFolder || !info.Exists || removed.Contains(arguments) || !used.Add(path))
-                {
-                    continue;
-                }
-
-                string name = string.IsNullOrWhiteSpace(node.Name) ? info.DisplayName : node.Name!;
-                if (name.StartsWith("::", StringComparison.Ordinal))
-                {
-                    continue; // not looked up yet: shown on the next rebuild
-                }
-
-                items.AddObject(CreateLink(exe, arguments, name, path));
+                items.AddObject(CreateLink(exe, entry.Arguments, entry.Name, entry.Path));
                 count++;
             }
 

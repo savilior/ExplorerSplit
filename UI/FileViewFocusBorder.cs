@@ -9,8 +9,8 @@ namespace Explorer2.UI;
 /// <summary>
 /// Draws a clear border around the file list's current item (the focused item, Total Commander's
 /// cursor). Windows' own focus rectangle is a thin line that is hard to see on a multiple selection
-/// and in dark mode. The border shows when Windows shows the focus rectangle (after keyboard use),
-/// in black (light) or white (dark), over the item view's own painting.
+/// and in dark mode. The border shows when Windows shows the focus rectangle (after keyboard use):
+/// an accent-colored outline over the view's own focus line.
 /// The item's rectangle comes from UI Automation on a background thread, because the item view
 /// (DirectUIHWND) has no message that returns it.
 /// </summary>
@@ -240,11 +240,16 @@ internal sealed class FileViewFocusBorder : NativeWindow
             ExcludeChildWindows(g);
             g.SmoothingMode = SmoothingMode.AntiAlias;
             float scale = g.DpiX / 96f;
-            float width = Math.Max(2f, 2f * scale);
-            RectangleF box = _rect;
-            box.Inflate(-width / 2f, -width / 2f);
-            using GraphicsPath path = RoundedRectangle(box, 4f * scale);
-            using Pen pen = new(AppTheme.IsDark ? Color.White : Color.Black, width);
+            bool dark = AppTheme.IsDark;
+
+            // An accent outline (the selection's own blue) drawn over the view's thin black / white
+            // focus line, so the current item stands out without a hard frame
+            Color accent = dark ? Color.FromArgb(96, 205, 255) : Color.FromArgb(0, 103, 192);
+            float width = Math.Max(2f, (float)Math.Round(2f * scale));
+            RectangleF box = new(_rect.Left, _rect.Top, _rect.Width - 1, _rect.Height - 1);
+            box.Inflate(-(width - 1) / 2f, -(width - 1) / 2f);
+            using GraphicsPath path = RoundedRectangle(box, 2f * scale);
+            using Pen pen = new(accent, width);
             g.DrawPath(pen, path);
         }
         catch
