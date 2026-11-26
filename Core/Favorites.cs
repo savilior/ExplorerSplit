@@ -68,6 +68,7 @@ internal static class Favorites
             {
                 _uiContext ??= SynchronizationContext.Current;
                 _roots = Load() ?? ImportQuickAccessPins();
+                AddDefaultsOnce();
                 StartWatching();
             }
 
@@ -129,6 +130,42 @@ internal static class Favorites
         _roots = roots;
         Save();
         return roots;
+    }
+
+    public const string RecycleBinPath = "::{645FF040-5081-101B-9F08-00AA002F954E}";
+
+    /// <summary>
+    /// Entries Explorer2 adds to the list once (neither Windows nor its pins have them): the Recycle
+    /// Bin, at the end. The user can move or unpin it like any favorite; it is not added back. The
+    /// file next to the list remembers what was already added.
+    /// </summary>
+    private static void AddDefaultsOnce()
+    {
+        string markerPath = FilePath + ".defaults";
+        try
+        {
+            HashSet<string> done = File.Exists(markerPath)
+                ? File.ReadAllLines(markerPath).Select(l => l.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (done.Contains("RecycleBin"))
+            {
+                return;
+            }
+
+            if (!ContainsAnywhere(RecycleBinPath))
+            {
+                _roots!.Add(FavoriteNode.Shortcut(RecycleBinPath));
+                Save();
+            }
+
+            done.Add("RecycleBin");
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(markerPath)!);
+            File.WriteAllLines(markerPath, done);
+        }
+        catch
+        {
+            // Not added this time; tried again next start
+        }
     }
 
     public static bool SamePath(string? a, string? b) =>

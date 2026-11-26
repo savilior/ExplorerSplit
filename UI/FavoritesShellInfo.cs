@@ -32,6 +32,7 @@ internal static class FavoritesShellInfo
     private static IntPtr _smallImageList;
     private static int _folderIcon = -1;
     private static int _fileIcon = -1;
+    private static System.Threading.Timer? _recycleBinTimer;
 
     /// <summary>Raised on the UI thread when targets were looked up.</summary>
     public static event Action? Updated;
@@ -66,6 +67,12 @@ internal static class FavoritesShellInfo
     /// <summary>What is known about <paramref name="path"/> now; starts a lookup the first time.</summary>
     public static FavoriteTargetInfo Get(string path)
     {
+        if (_recycleBinTimer is null && Core.Favorites.SamePath(path, Core.Favorites.RecycleBinPath))
+        {
+            // The Recycle Bin's icon shows whether it is empty: look it up again now and then
+            _recycleBinTimer = new System.Threading.Timer(_ => Queue(Core.Favorites.RecycleBinPath, force: true), null, 3000, 3000);
+        }
+
         if (Cache.TryGetValue(path, out FavoriteTargetInfo? info))
         {
             return info;

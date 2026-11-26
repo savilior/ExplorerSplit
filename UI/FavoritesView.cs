@@ -1106,6 +1106,11 @@ internal sealed class FavoritesView : Control
                 }
             }
 
+            if (Favorites.SamePath(path, Favorites.RecycleBinPath))
+            {
+                menu.Items.Add(Item("Empty Recycle Bin", EmptyRecycleBin, ""));
+            }
+
             if (row.Kind == RowKind.Shortcut)
             {
                 menu.Items.Add(new ToolStripSeparator());
@@ -1190,6 +1195,18 @@ internal sealed class FavoritesView : Control
 
         Favorites.Rename(node, name);
     }
+
+    /// <summary>Empties the Recycle Bin with Windows' own question and progress.</summary>
+    private void EmptyRecycleBin()
+    {
+        _host.Flyouts.CloseAll();
+        IntPtr owner = _host.OwnerForm?.Handle ?? IntPtr.Zero;
+        SHEmptyRecycleBin(owner, null, 0);
+        FavoritesShellInfo.Refresh(new[] { Favorites.RecycleBinPath });
+    }
+
+    [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int SHEmptyRecycleBin(IntPtr hwnd, string? pszRootPath, uint dwFlags);
 
     private void RemoveWithConfirmation(FavoriteNode node)
     {
