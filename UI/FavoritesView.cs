@@ -161,7 +161,7 @@ internal sealed class FavoritesView : Control
 
     // ---------------------------------------------------------------- rows
 
-    private List<FavoriteNode> OwnList => _group?.Children ?? Favorites.Roots;
+    private List<FavoriteNode> OwnList => _group is null ? Favorites.Roots : _group.Children ?? new List<FavoriteNode>();
 
     private void OnFavoritesChanged()
     {
@@ -238,9 +238,9 @@ internal sealed class FavoritesView : Control
                 IndexInOwner = i
             });
 
-            if (node.IsGroup && node.Expanded)
+            if (node.Children is not null && node.Expanded)
             {
-                AddRows(node.Children!, node, level + 1);
+                AddRows(node.Children, node, level + 1);
             }
         }
     }
@@ -279,6 +279,12 @@ internal sealed class FavoritesView : Control
     private bool IsFolderRow(Row row) =>
         row.Kind == RowKind.Fixed ||
         (row.Kind == RowKind.Shortcut && FavoritesShellInfo.Get(row.Path!) is { IsFolder: true, Exists: true });
+
+    /// <summary>A group or a link with nested links: an arrow at its left expands it in place.</summary>
+    private static bool HasArrow(Row row) => row.Node is { HasEntries: true } && row.Kind is RowKind.Group or RowKind.Shortcut;
+
+    /// <summary>Resting on the row shows its entries in a flyout (a group, even an empty one, or a link with nested links).</summary>
+    private static bool CanFlyout(Row row) => row.Kind == RowKind.Group || (row.Kind == RowKind.Shortcut && row.Node!.HasEntries);
 
     // ---------------------------------------------------------------- geometry
 
@@ -559,14 +565,14 @@ internal sealed class FavoritesView : Control
                 }
             }
 
-            if (r.Kind == RowKind.Group && showChevrons && r.Node!.Children!.Count > 0 && _theme != IntPtr.Zero)
+            if (HasArrow(r) && showChevrons && _theme != IntPtr.Zero)
             {
                 int size = Scale(16);
                 int c = ChevronCenter(r.Level);
                 RECT glyph = new(c - size / 2, row.Top + (row.Height - size) / 2, c - size / 2 + size, row.Top + (row.Height - size) / 2 + size);
                 bool chevronHot = hot && _hotChevron;
                 // TVP_GLYPH 2 / TVP_HOTGLYPH 4: closed 1, opened 2
-                DrawThemeBackground(_theme, hdc, chevronHot ? 4 : 2, r.Node.Expanded ? 2 : 1, ref glyph, IntPtr.Zero);
+                DrawThemeBackground(_theme, hdc, chevronHot ? 4 : 2, r.Node!.Expanded ? 2 : 1, ref glyph, IntPtr.Zero);
             }
 
             if (r.Kind is RowKind.Fixed or RowKind.Shortcut && info is not null)
@@ -711,7 +717,7 @@ internal sealed class FavoritesView : Control
 
         int index = RowAt(e.Y);
         bool onNewTab = index >= 0 && NewTabRect(index).Contains(e.Location);
-        bool onChevron = index >= 0 && _rows[index].Kind == RowKind.Group && ChevronRect(index).Contains(e.Location);
+        bool onChevron = index >= 0 && (_rows[index].Kind == RowKind.Group || HasArrow(_rows[index])) && ChevronRect(index).Contains(e.Location);
         SetHot(index, onNewTab, onChevron);
     }
 
@@ -740,7 +746,7 @@ internal sealed class FavoritesView : Control
         {
             _toolTip.Hide(this);
             _hoverTimer.Stop();
-            if (index >= 0 && _rows[index].Kind == RowKind.Group && !_rows[index].Node!.Expanded)
+            if (index >= 0 && CanFlyout(_rows[index]) && !_rows[index].Node!.Expanded)
             {
                 _hoverTimer.Interval = HoverOpenDelay;
                 _hoverTimer.Start();
@@ -756,7 +762,7 @@ internal sealed class FavoritesView : Control
     private void OnHoverTimer()
     {
         _hoverTimer.Stop();
-        if (_hot >= 0 && _hot < _rows.Count && _rows[_hot].Kind == RowKind.Group && !_rows[_hot].Node!.Expanded &&
+        if (_hot >= 0 && _hot < _rows.Count && CanFlyout(_rows[_hot]) && !_rows[_hot].Node!.Expanded &&
             ClientRectangle.Contains(PointToClient(Cursor.Position)))
         {
             OpenFlyout(_hot);
@@ -765,7 +771,7 @@ internal sealed class FavoritesView : Control
 
     private void OpenFlyout(int index)
     {
-        if (index >= 0 && index < _rows.Count && _rows[index].Node is { IsGroup: true } group)
+        if (index >= 0 && index < _rows.Count && CanFlyout(_rows[index]) && _rows[index].Node is { } group)
         {
             _host.Flyouts.Open(this, group, RowScreenRect(index));
         }
@@ -839,8 +845,9 @@ internal sealed class FavoritesView : Control
             return;
         }
 
-        if (row.Kind == RowKind.Group)
+        if (row.Kind == RowKind.Group || (HasArrow(row) && ChevronRect(index).Contains(e.Location)))
         {
+            // A group opens in place on any click; a link with nested links only on its arrow
             _host.Flyouts.CloseFrom(this);
             Favorites.SetExpanded(row.Node!, !row.Node!.Expanded);
             return;
@@ -981,9 +988,9 @@ internal sealed class FavoritesView : Control
                 MoveCaret(Math.Min(_rows.Count - 1, _caret + Math.Max(1, ClientSize.Height / _rowHeight - 1)));
                 break;
             case Keys.Right:
-                if (current?.Kind == RowKind.Group)
+                if (current?.Kind == RowKind.Group || (current is not null && HasArrow(current)))
                 {
-                    if (!current.Node!.Expanded && current.Node.Children!.Count > 0)
+                    if (!current.Node!.Expanded && current.Node.HasEntries)
                     {
                         Favorites.SetExpanded(current.Node, true);
                     }
@@ -995,7 +1002,7 @@ internal sealed class FavoritesView : Control
 
                 break;
             case Keys.Left:
-                if (current?.Kind == RowKind.Group && current.Node!.Expanded)
+                if (current?.Node is { Children: not null, Expanded: true })
                 {
                     Favorites.SetExpanded(current.Node, false);
                 }
@@ -1130,6 +1137,12 @@ internal sealed class FavoritesView : Control
                 menu.Items.Add(Item("Empty Recycle Bin", EmptyRecycleBin, ""));
             }
 
+            if (row.Kind == RowKind.Shortcut && row.Node!.HasEntries)
+            {
+                FavoriteNode link = row.Node;
+                menu.Items.Add(Item(link.Expanded ? "Collapse" : "Expand", () => Favorites.SetExpanded(link, !link.Expanded)));
+            }
+
             if (row.Kind == RowKind.Shortcut)
             {
                 menu.Items.Add(new ToolStripSeparator());
@@ -1229,13 +1242,15 @@ internal sealed class FavoritesView : Control
 
     private void RemoveWithConfirmation(FavoriteNode node)
     {
-        if (node.IsGroup && Favorites.Flatten(node.Children!).Any())
+        if (node.HasEntries)
         {
             int shortcuts = Favorites.Flatten(node.Children!).Count(n => !n.IsGroup);
+            string what = node.IsGroup ? $"the group \"{node.Name}\"" : $"\"{node.Name ?? FavoritesShellInfo.Get(node.Path!).DisplayName}\"";
+            string inside = node.IsGroup ? "in it" : "nested in it";
             using (_host.Flyouts.Suspend())
             {
                 if (MessageBox.Show(_host.OwnerForm,
-                        $"Remove the group \"{node.Name}\" and the {shortcuts} shortcut{(shortcuts == 1 ? "" : "s")} in it?\n\n" +
+                        $"Remove {what} and the {shortcuts} link{(shortcuts == 1 ? "" : "s")} {inside}?\n\n" +
                         "Only the Favorites entries are removed; the folders and files stay where they are.",
                         "Explorer2", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 {
@@ -1353,8 +1368,7 @@ internal sealed class FavoritesView : Control
             case RowKind.Hint:
                 return Valid(new DropPlan(FavoritesViewDropAction.Insert, _group, 0, top, 0, -1));
             case RowKind.Fixed:
-                // Files dropped on the Recycle Bin are deleted, as in File Explorer; on Desktop,
-                // Downloads or Documents they go into the folder
+                // Files dropped on the Recycle Bin are deleted, as in File Explorer; the other top rows take no drops
                 bool lastFixed = index == FixedRowCount - 1;
                 if (external && dragged is null && TopSection.AcceptsDrops(row.Path) && (!lastFixed || rel <= 0.75))
                 {
@@ -1364,25 +1378,13 @@ internal sealed class FavoritesView : Control
                 return lastFixed && rel > 0.5
                     ? Valid(new DropPlan(FavoritesViewDropAction.Insert, _group, 0, top + _rowHeight, 0, -1))
                     : default;
-            case RowKind.Group:
-                FavoriteNode group = row.Node!;
-                if (rel < 0.25)
-                {
-                    return Valid(new DropPlan(FavoritesViewDropAction.Insert, row.OwnerGroup, row.IndexInOwner, top, row.Level, -1));
-                }
-
-                if (rel > 0.75)
-                {
-                    return group.Expanded && group.Children!.Count > 0
-                        ? Valid(new DropPlan(FavoritesViewDropAction.Insert, group, 0, top + _rowHeight, row.Level + 1, -1))
-                        : Valid(new DropPlan(FavoritesViewDropAction.Insert, row.OwnerGroup, row.IndexInOwner + 1, top + _rowHeight, row.Level, -1));
-                }
-
-                return Valid(new DropPlan(FavoritesViewDropAction.IntoGroup, group, group.Children!.Count, 0, 0, index));
             default:
-                FavoriteTargetInfo info = FavoritesShellInfo.Get(row.Path!);
-                bool folderTarget = external && info is { IsFolder: true, Exists: true };
-                double edge = folderTarget ? 0.25 : 0.5;
+                // A group, or a link to a folder: the middle of the row nests the dropped items in it
+                // (links only; the files themselves are never copied or moved). A link to a file
+                // holds nothing, so a drop goes above or below it.
+                FavoriteNode target = row.Node!;
+                bool container = row.Kind == RowKind.Group || FavoritesShellInfo.Get(row.Path!) is { IsFolder: true };
+                double edge = container ? 0.25 : 0.5;
                 if (rel < edge)
                 {
                     return Valid(new DropPlan(FavoritesViewDropAction.Insert, row.OwnerGroup, row.IndexInOwner, top, row.Level, -1));
@@ -1390,10 +1392,12 @@ internal sealed class FavoritesView : Control
 
                 if (rel >= 1 - edge)
                 {
-                    return Valid(new DropPlan(FavoritesViewDropAction.Insert, row.OwnerGroup, row.IndexInOwner + 1, top + _rowHeight, row.Level, -1));
+                    return target.Expanded && target.HasEntries
+                        ? Valid(new DropPlan(FavoritesViewDropAction.Insert, target, 0, top + _rowHeight, row.Level + 1, -1))
+                        : Valid(new DropPlan(FavoritesViewDropAction.Insert, row.OwnerGroup, row.IndexInOwner + 1, top + _rowHeight, row.Level, -1));
                 }
 
-                return new DropPlan(FavoritesViewDropAction.IntoFolder, null, 0, 0, 0, index);
+                return Valid(new DropPlan(FavoritesViewDropAction.IntoGroup, target, target.Children?.Count ?? 0, 0, 0, index));
         }
 
         DropPlan Valid(DropPlan plan)
@@ -1433,9 +1437,9 @@ internal sealed class FavoritesView : Control
             Invalidate();
         }
 
-        // Held over a closed group: show its entries in a flyout, to drop into a place there
+        // Held over a closed group or a link with nested links: show its entries in a flyout, to drop into a place there
         int index = RowAt(client.Y);
-        if (index >= 0 && _rows[index].Kind == RowKind.Group && !_rows[index].Node!.Expanded)
+        if (DraggedFixedId is null && index >= 0 && CanFlyout(_rows[index]) && !_rows[index].Node!.Expanded)
         {
             if (index != _dragHoverRow)
             {
@@ -1491,7 +1495,7 @@ internal sealed class FavoritesView : Control
                     Favorites.Move(dragged, plan.Group, plan.Index);
                     break;
                 case FavoritesViewDropAction.IntoGroup when dragged is not null:
-                    Favorites.Move(dragged, plan.Group, plan.Group!.Children!.Count);
+                    Favorites.Move(dragged, plan.Group, plan.Group!.Children?.Count ?? 0);
                     break;
                 case FavoritesViewDropAction.Insert:
                     Favorites.AddPaths(paths, plan.Group, plan.Index);

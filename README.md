@@ -135,20 +135,22 @@ A new window starts with the keyboard in the file list.
 
 ### Favorites
 
-The top of the navigation pane shows **Home**, **Gallery** and the **Recycle Bin** (always there; drop files on the Recycle Bin to delete them, right-click → **Empty Recycle Bin**), a divider, then your **Favorites**, in place of File Explorer's Quick access pins. The first time it starts with a copy of your Quick access pins; after that it is Explorer2's own list (Quick access itself is never changed). It is saved in `%APPDATA%\Explorer2\favorites.json` and shared by all Explorer2 windows.
+The top of the navigation pane shows fixed rows: **Home**, **Gallery**, the **Recycle Bin** (drop files on it to delete them, right-click → **Empty Recycle Bin**), **Desktop**, **Downloads** and **Documents**. Drag them to change their order; turn each on or off with **Navigation Pane Top Section...** in the tray menu. Under a divider come your **Favorites**, in place of File Explorer's Quick access pins. The first time it starts with a copy of your Quick access pins; after that it is Explorer2's own list (Quick access itself is never changed). It is saved in `%APPDATA%\Explorer2\favorites.json` and shared by all Explorer2 windows.
+
+Favorites are links: adding, moving or removing them never touches the folders and files themselves. A link to a folder can hold nested links. Below the Favorites, the folder tree lists the sources (OneDrive, This PC, Network), folded.
 
 | To | Do |
 |---|---|
 | Open a favorite in the active pane | Click it (a file opens with its app) |
 | Open a folder in a new tab | Click the icon at the right of the row (it shows when the mouse is on the row), middle-click, or **Ctrl+Enter** |
 | Open a folder in the other pane (split mode) | Right-click → **Open in other pane** |
-| See a group's contents | Rest the mouse on the group: they open to the side and close when the mouse leaves. Click the group (or its arrow) to open it in place instead |
-| Add folders or files | Drag them from anywhere onto the list (a line shows where they go; onto a group puts them inside it), or right-click them in the files or the folder tree → **Pin to Favorites** |
-| Copy or move files into a favorite folder | Drop them onto the middle of the folder, as in the folder tree |
-| Reorder, or move into / out of a group | Drag the favorite (also into and out of the side flyouts) |
+| See a group's contents, or a link's nested links | Rest the mouse on it: they open to the side and close when the mouse leaves. Click its arrow to open it in place instead (a group also opens on a click) |
+| Add folders or files | Drag them from anywhere onto the list (a line shows where they go), or right-click them in the files or the folder tree → **Pin to Favorites** |
+| Nest links in a group or a folder link | Drop onto the middle of it. Hold the drag over one that already has entries and its flyout opens, to drop at an exact place there (or in a deeper flyout) |
+| Reorder, or move into / out of a group or link | Drag the favorite (also into and out of the side flyouts) |
 | Make a group | Right-click → **New group** (or **New group inside** on a group) |
 | Rename / remove | Right-click → **Rename** (**F2**) / **Unpin from Favorites** (**Del**). Removing a favorite never touches the folder or file itself |
-| Use the keyboard | **Ctrl+Shift+E**, then the arrow keys (a folder opens as you move onto it), **Right** / **Left** open and close a group, **Enter** opens. **Down** at the end continues into the folder tree |
+| Use the keyboard | **Ctrl+Shift+E**, then the arrow keys (a folder opens as you move onto it), **Right** / **Left** open and close a group or a link's nested links, **Enter** opens. **Down** at the end continues into the folder tree |
 
 A favorite whose folder or file can't be found (moved, deleted, drive not connected) is shown dimmed; clicking it offers to remove it. To go back to the native Quick access pins, turn off **Favorites in Navigation Pane** in the tray menu.
 
@@ -202,6 +204,7 @@ Click **Preview** in the command bar. It uses the same preview handlers as File 
 | **Always Use Details View & Group: None** | Forces Details view without grouping in every folder |
 | **Enable Title Bar Toggle Button** | Shows a split button on native File Explorer windows |
 | **Favorites in Navigation Pane** | On (default): the navigation pane shows Explorer2's [Favorites](#favorites). Off: File Explorer's Quick access pins. New windows use it |
+| **Navigation Pane Top Section...** | Turns each top row (Home, Gallery, Recycle Bin, Desktop, Downloads, Documents) on or off. Open windows update at once; drag the rows in the pane to reorder them |
 | **Ask Before F5 Copy / F6 Move** | On (default): F5/F6 ask for the destination. Off (also set by **Don't ask again** in that dialog): they copy/move straight to the other pane. Windows still asks before overwriting, and Ctrl+Z undoes |
 | **Hotkey** | Changes the split-mode hotkey (default **Ctrl+Shift+S**) |
 | **Default Right-Pane Path** | What the right pane opens: same folder as the left, Home, or a custom folder |

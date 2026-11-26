@@ -597,12 +597,13 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             InsertPinnedRoots();
         }
 
-        // 5. This PC (expanded to show Desktop, Downloads, Documents, Pictures, Music, Videos, and Drives)
+        // 5. This PC (expanded to show Desktop, Downloads, Documents, Pictures, Music, Videos, and Drives;
+        //    Favorites mode: folded like the other sources)
         int thisPcIndex = CountRootItems();
         AppendShellRoot(
             "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",
             ShellBrowserInterop.SHCONTF_FOLDERS,
-            ShellBrowserInterop.NSTCRS_VISIBLE | ShellBrowserInterop.NSTCRS_EXPANDED);
+            FavoritesMode ? ShellBrowserInterop.NSTCRS_VISIBLE : ShellBrowserInterop.NSTCRS_VISIBLE | ShellBrowserInterop.NSTCRS_EXPANDED);
 
         // 6. Network
         AppendShellRoot(
@@ -1630,7 +1631,11 @@ internal sealed class LeftSourceTreePane : Panel, ShellBrowserInterop.INameSpace
             if (m.Msg == (int)WM_PAINT)
             {
                 _owner.DrawGroupDividerAboveItem(_owner._firstPinnedItem);
-                _owner.DrawGroupDividerAboveItem(_owner._thisPcItem);
+                if (!_owner.FavoritesMode)
+                {
+                    // Favorites mode: the tree is one section of sources (OneDrive, This PC, Network), with no divider
+                    _owner.DrawGroupDividerAboveItem(_owner._thisPcItem);
+                }
                 _owner.DrawPinIcons();
             }
         }

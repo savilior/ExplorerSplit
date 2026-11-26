@@ -4,8 +4,10 @@ using System.Text.Json.Serialization;
 namespace Explorer2.Core;
 
 /// <summary>
-/// One entry of the Favorites section: a shortcut to a folder or file (<see cref="Path"/> set), or a
-/// group that holds other entries (<see cref="Children"/> set). Groups can be nested.
+/// One entry of the Favorites section: a link to a folder or file (<see cref="Path"/> set), or a
+/// group that holds other entries (no <see cref="Path"/>, <see cref="Children"/> set). A link to a
+/// folder can also hold nested links in <see cref="Children"/> (made by dropping onto it). Nesting
+/// can go any number of levels deep.
 /// </summary>
 internal sealed class FavoriteNode
 {
@@ -15,15 +17,19 @@ internal sealed class FavoriteNode
     /// <summary>Shell parsing path of the target (a file-system path or "::{GUID}"); null for a group.</summary>
     public string? Path { get; set; }
 
-    /// <summary>Entries of a group; null for a shortcut.</summary>
+    /// <summary>Entries of a group, or the links nested in a link; null for a link with none.</summary>
     public List<FavoriteNode>? Children { get; set; }
 
-    /// <summary>A group shown open in the navigation pane.</summary>
+    /// <summary>A group (or a link with nested links) shown open in the navigation pane.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool Expanded { get; set; }
 
     [JsonIgnore]
-    public bool IsGroup => Children is not null;
+    public bool IsGroup => Path is null && Children is not null;
+
+    /// <summary>A group, or a link with at least one nested link: it has an arrow and a flyout.</summary>
+    [JsonIgnore]
+    public bool HasEntries => Children is { Count: > 0 };
 
     public static FavoriteNode Shortcut(string path) => new() { Path = path };
 
@@ -98,16 +104,23 @@ internal static class Favorites
         return null;
     }
 
-    /// <summary>Drops entries that are neither a shortcut nor a group (hand-edited file).</summary>
+    /// <summary>Drops entries that are neither a link nor a group (hand-edited file).</summary>
     private static void Clean(List<FavoriteNode> list)
     {
         list.RemoveAll(n => n.Children is null && string.IsNullOrWhiteSpace(n.Path));
-        foreach (FavoriteNode group in list.Where(n => n.Children is not null))
+        foreach (FavoriteNode node in list.Where(n => n.Children is not null))
         {
-            group.Path = null;
-            Clean(group.Children!);
+            if (string.IsNullOrWhiteSpace(node.Path))
+            {
+                node.Path = null;
+            }
+
+            Clean(node.Children!);
         }
     }
+
+    /// <summary>The list that holds the entries of <paramref name="owner"/> (null = the top level); a link gets one when needed.</summary>
+    public static List<FavoriteNode> EntriesOf(FavoriteNode? owner) => owner is null ? Roots : owner.Children ??= new List<FavoriteNode>();
 
     private static List<FavoriteNode> ImportQuickAccessPins()
     {
@@ -184,12 +197,12 @@ internal static class Favorites
 
     private static bool RemovePaths(List<FavoriteNode> list, IReadOnlyCollection<string> paths, bool recursive)
     {
-        bool removed = list.RemoveAll(n => !n.IsGroup && paths.Any(p => SamePath(n.Path, p))) > 0;
+        bool removed = list.RemoveAll(n => !n.IsGroup && !n.HasEntries && paths.Any(p => SamePath(n.Path, p))) > 0;
         if (recursive)
         {
-            foreach (FavoriteNode group in list.Where(n => n.IsGroup))
+            foreach (FavoriteNode owner in list.Where(n => n.Children is not null))
             {
-                removed |= RemovePaths(group.Children!, paths, recursive: true);
+                removed |= RemovePaths(owner.Children!, paths, recursive: true);
             }
         }
 
@@ -210,7 +223,7 @@ internal static class Favorites
             return list;
         }
 
-        foreach (FavoriteNode group in list.Where(n => n.IsGroup))
+        foreach (FavoriteNode group in list.Where(n => n.Children is not null))
         {
             if (FindList(group.Children!, node) is { } found)
             {
@@ -231,7 +244,7 @@ internal static class Favorites
             return owner;
         }
 
-        foreach (FavoriteNode group in list.Where(n => n.IsGroup))
+        foreach (FavoriteNode group in list.Where(n => n.Children is not null))
         {
             if (FindParent(group.Children!, group, node) is { } found)
             {
@@ -250,7 +263,7 @@ internal static class Favorites
             return true;
         }
 
-        return ancestor.IsGroup && ancestor.Children!.Any(c => IsInside(node, c));
+        return ancestor.Children is not null && ancestor.Children.Any(c => IsInside(node, c));
     }
 
     /// <summary>True when the top level (not inside groups) already has a shortcut to <paramref name="path"/>.</summary>
@@ -264,7 +277,7 @@ internal static class Favorites
         foreach (FavoriteNode node in list)
         {
             yield return node;
-            if (node.IsGroup)
+            if (node.Children is not null)
             {
                 foreach (FavoriteNode child in Flatten(node.Children!))
                 {
@@ -275,17 +288,19 @@ internal static class Favorites
     }
 
     /// <summary>
-    /// Adds shortcuts to <paramref name="paths"/> in <paramref name="group"/> (null = top level) at
-    /// <paramref name="index"/> (-1 = at the end). A path the list already holds is skipped.
+    /// Adds links to <paramref name="paths"/> in <paramref name="group"/> (a group or a link to nest
+    /// them in; null = top level) at <paramref name="index"/> (-1 = at the end). A path the list
+    /// already holds is skipped, and so is a link's own path.
     /// </summary>
     public static int AddPaths(IEnumerable<string> paths, FavoriteNode? group = null, int index = -1)
     {
-        List<FavoriteNode> list = group?.Children ?? Roots;
+        List<FavoriteNode> list = EntriesOf(group);
         int at = index < 0 || index > list.Count ? list.Count : index;
         int added = 0;
         foreach (string path in paths)
         {
-            if (string.IsNullOrWhiteSpace(path) || IsFixedPath(path) || list.Any(n => SamePath(n.Path, path)))
+            if (string.IsNullOrWhiteSpace(path) || (group is null && IsFixedPath(path)) ||
+                SamePath(group?.Path, path) || list.Any(n => SamePath(n.Path, path)))
             {
                 continue;
             }
@@ -311,7 +326,7 @@ internal static class Favorites
         }
 
         List<FavoriteNode>? from = ListOf(node);
-        List<FavoriteNode> to = group?.Children ?? Roots;
+        List<FavoriteNode> to = EntriesOf(group);
         if (from is null)
         {
             return;
@@ -358,7 +373,7 @@ internal static class Favorites
 
     public static FavoriteNode NewGroup(FavoriteNode? parent, int index, string name)
     {
-        List<FavoriteNode> list = parent?.Children ?? Roots;
+        List<FavoriteNode> list = EntriesOf(parent);
         FavoriteNode group = FavoriteNode.Group(name);
         list.Insert(index < 0 || index > list.Count ? list.Count : index, group);
         Commit();
@@ -367,7 +382,7 @@ internal static class Favorites
 
     public static void SetExpanded(FavoriteNode group, bool expanded)
     {
-        if (group.IsGroup && group.Expanded != expanded)
+        if (group.Children is not null && group.Expanded != expanded)
         {
             group.Expanded = expanded;
             Commit();
@@ -377,7 +392,7 @@ internal static class Favorites
     /// <summary>A free "New group" name at this level.</summary>
     public static string NextGroupName(FavoriteNode? parent)
     {
-        List<FavoriteNode> list = parent?.Children ?? Roots;
+        List<FavoriteNode> list = parent?.Children ?? (parent is null ? Roots : new List<FavoriteNode>());
         string name = "New group";
         for (int i = 2; list.Any(n => n.IsGroup && string.Equals(n.Name, name, StringComparison.OrdinalIgnoreCase)); i++)
         {
@@ -389,6 +404,13 @@ internal static class Favorites
 
     private static void Commit()
     {
+        // A link whose last nested link went away is a plain link again
+        foreach (FavoriteNode link in Flatten(Roots).Where(n => n.Path is not null && n.Children is { Count: 0 }).ToList())
+        {
+            link.Children = null;
+            link.Expanded = false;
+        }
+
         Save();
         Changed?.Invoke();
     }

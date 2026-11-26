@@ -12,7 +12,7 @@ internal static class TopSection
 {
     public const string GalleryPath = "::{e88865ea-0e1c-4e20-9aa6-edcd0212c87c}";
 
-    /// <summary>One row. <see cref="AcceptsDrops"/>: dropped files go into it (a real folder or the Recycle Bin).</summary>
+    /// <summary>One row. <see cref="AcceptsDrops"/>: dropped files go into it (only the Recycle Bin, which deletes them).</summary>
     public sealed record Item(string Id, string Name, string Path, bool AcceptsDrops);
 
     private static readonly string[] DefaultOrder = { "Home", "Gallery", "RecycleBin", "Desktop", "Downloads", "Documents" };
@@ -37,9 +37,9 @@ internal static class TopSection
             new("Home", "Home", ExplorerDetector.HomeShellGuid, false),
             new("Gallery", "Gallery", GalleryPath, false),
             new("RecycleBin", "Recycle Bin", Favorites.RecycleBinPath, true),
-            new("Desktop", "Desktop", string.IsNullOrEmpty(desktop) ? System.IO.Path.Combine(userProfile, "Desktop") : desktop, true),
-            new("Downloads", "Downloads", downloads, true),
-            new("Documents", "Documents", string.IsNullOrEmpty(documents) ? System.IO.Path.Combine(userProfile, "Documents") : documents, true)
+            new("Desktop", "Desktop", string.IsNullOrEmpty(desktop) ? System.IO.Path.Combine(userProfile, "Desktop") : desktop, false),
+            new("Downloads", "Downloads", downloads, false),
+            new("Documents", "Documents", string.IsNullOrEmpty(documents) ? System.IO.Path.Combine(userProfile, "Documents") : documents, false)
         };
 
         return items.ToDictionary(i => i.Id, StringComparer.OrdinalIgnoreCase);
