@@ -82,6 +82,8 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
     private readonly List<BreadcrumbSegment> _breadcrumbs = new();
     private Rectangle _rootIconBounds;
     private Rectangle _rootChevronBounds;
+    private Rectangle _historyChevronBounds;
+    private bool _hoveredHistoryChevron;
     private bool _hoveredRootIcon;
     private bool _hoveredRootChevron;
     private int _hoveredBreadcrumbIndex = -1;
@@ -375,9 +377,10 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         _breadcrumbView.MouseMove += OnBreadcrumbMouseMove;
         _breadcrumbView.MouseLeave += (_, _) =>
         {
-            if (_hoveredBreadcrumbIndex != -1)
+            if (_hoveredBreadcrumbIndex != -1 || _hoveredHistoryChevron)
             {
                 _hoveredBreadcrumbIndex = -1;
+                _hoveredHistoryChevron = false;
                 _breadcrumbView.Invalidate();
             }
         };
@@ -1759,6 +1762,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
         _rootIconBounds = new Rectangle(6, topY, 24, height);
         _rootChevronBounds = new Rectangle(30, topY, 16, height);
+        _historyChevronBounds = new Rectangle(_breadcrumbView.Width - 30, topY, 26, height);
 
         int currentX = _rootChevronBounds.Right + 2;
         foreach ((string label, string target) in rawParts)
@@ -1828,14 +1832,85 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
             DrawRightChevron(g, seg.ChevronBounds, _mutedTextColor);
         }
+
+        // Recent folders (like File Explorer's address bar arrow)
+        if (_historyChevronBounds.Width > 0)
+        {
+            using (SolidBrush cover = new(_breadcrumbView.BackColor))
+            {
+                g.FillRectangle(cover, Rectangle.FromLTRB(_historyChevronBounds.Left - 6, 0, _breadcrumbView.Width, _breadcrumbView.Height));
+            }
+
+            if (_hoveredHistoryChevron)
+            {
+                using GraphicsPath p = IconFactory.CreateRoundedRect(_historyChevronBounds, 4);
+                using SolidBrush b = new(_controlHoverBg);
+                g.FillPath(b, p);
+            }
+
+            DrawDownChevron(g, _historyChevronBounds, _mutedTextColor);
+        }
+    }
+
+    /// <summary>The address bar's arrow: recently opened folders, newest first.</summary>
+    private void ShowFolderHistoryDropdown()
+    {
+        ContextMenuStrip menu = Win11MenuRenderer.CreateMenu(_isDarkMode, _uiFont);
+        foreach (Core.FolderHistoryEntry entry in Core.FolderHistory.Entries)
+        {
+            string target = entry.Path;
+            string text = target.StartsWith("::", StringComparison.Ordinal) || target.StartsWith("shell:", StringComparison.OrdinalIgnoreCase)
+                ? entry.Name
+                : target;
+            menu.Items.Add(Win11MenuRenderer.CreateMenuItem(text, _isDarkMode, (_, _) =>
+                _selectedPane?.ActiveTab?.NavigateToPath(target)));
+        }
+
+        if (menu.Items.Count == 0)
+        {
+            ToolStripMenuItem empty = Win11MenuRenderer.CreateMenuItem("(No recent folders)", _isDarkMode);
+            empty.Enabled = false;
+            menu.Items.Add(empty);
+        }
+        else
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Clear history", _isDarkMode, (_, _) => Core.FolderHistory.Clear()));
+        }
+
+        // As wide as the address bar, like File Explorer's list
+        menu.MinimumSize = new Size(_breadcrumbView.Width, 0);
+        menu.Show(_breadcrumbView, new Point(0, _breadcrumbView.Height + 2));
     }
 
     private void OnBreadcrumbMouseMove(object? sender, MouseEventArgs e)
     {
         bool newRootIcon = _rootIconBounds.Contains(e.Location);
         bool newRootChev = !newRootIcon && _rootChevronBounds.Contains(e.Location);
+        bool newHistory = _historyChevronBounds.Contains(e.Location);
         int hoveredLabel = -1;
         int hoveredChev = -1;
+
+        if (newHistory != _hoveredHistoryChevron)
+        {
+            _hoveredHistoryChevron = newHistory;
+            _breadcrumbView.Invalidate();
+        }
+
+        if (newHistory)
+        {
+            _breadcrumbView.Cursor = Cursors.Hand;
+            if (_hoveredBreadcrumbIndex != -1 || _hoveredChevronIndex != -1 || _hoveredRootIcon || _hoveredRootChevron)
+            {
+                _hoveredBreadcrumbIndex = -1;
+                _hoveredChevronIndex = -1;
+                _hoveredRootIcon = false;
+                _hoveredRootChevron = false;
+                _breadcrumbView.Invalidate();
+            }
+
+            return;
+        }
 
         if (!newRootIcon && !newRootChev)
         {
@@ -1889,6 +1964,12 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         if (_rootChevronBounds.Contains(e.Location))
         {
             ShowBreadcrumbRootDropdown(_rootChevronBounds);
+            return;
+        }
+
+        if (_historyChevronBounds.Contains(e.Location))
+        {
+            ShowFolderHistoryDropdown();
             return;
         }
 

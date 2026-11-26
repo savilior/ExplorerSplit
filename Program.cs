@@ -37,6 +37,11 @@ internal static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
+        // Right-click on the taskbar button: Favorites and recent folders
+        TaskbarJumpList.Start(() => Core.FolderHistory.Paths);
+        Core.FolderHistory.Changed += TaskbarJumpList.Schedule;
+        Application.ApplicationExit += (_, _) => Core.FolderHistory.Save();
+
         if (isCoordinator)
         {
             if (SynchronizationContext.Current is null)

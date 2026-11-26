@@ -2352,6 +2352,11 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
                         }
 
                         SyncRectForced();
+                        if (!IsShowingSearch)
+                        {
+                            Core.FolderHistory.Add(_lastNonSearchPath, Title);
+                        }
+
                         LastNavigationRestoresSelection = _nextNavigationRestoresSelection;
                         _nextNavigationRestoresSelection = false;
                         NavigationCompleted?.Invoke(this);
