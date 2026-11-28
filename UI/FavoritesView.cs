@@ -121,6 +121,11 @@ internal sealed class FavoritesView : Control
         _rowHeight = rowHeight;
         _padTop = _isTopList ? 0 : 4;
 
+        // The window text names the list for accessibility tools; tools\record-guide.ps1 also checks
+        // it, so a scripted drop lands only on a Favorites list, never in the folder tree
+        Text = "Explorer2 Favorites";
+        AccessibleName = "Favorites";
+
         bool dark = host.IsDarkMode;
         _bgColor = dark ? Color.FromArgb(25, 25, 28) : Color.FromArgb(255, 255, 255);
         _fgColor = dark ? Color.FromArgb(242, 242, 246) : Color.FromArgb(24, 24, 28);

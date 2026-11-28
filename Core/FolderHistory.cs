@@ -23,7 +23,7 @@ internal static class FolderHistory
     private static string FilePath =>
         Environment.GetEnvironmentVariable("EXPLORER2_HISTORY_FILE") is { Length: > 0 } overridePath
             ? overridePath
-            : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Explorer2", "history.json");
+            : System.IO.Path.Combine(Configuration.AppPaths.DataDirectory, "history.json");
 
     public static IReadOnlyList<FolderHistoryEntry> Entries => _entries ??= Load();
 

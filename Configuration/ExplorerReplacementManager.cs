@@ -9,6 +9,11 @@ internal static class ExplorerReplacementManager
 
     public static void SetEnabled(bool enabled)
     {
+        if (AppPaths.IsDemo)
+        {
+            return; // demo mode never changes the installed copy's registry
+        }
+
         if (enabled)
         {
             string exePath = Environment.ProcessPath ?? Application.ExecutablePath;

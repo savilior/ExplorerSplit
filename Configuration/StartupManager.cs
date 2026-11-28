@@ -14,6 +14,11 @@ internal static class StartupManager
     /// </summary>
     public static void MigrateLegacyEntry()
     {
+        if (AppPaths.IsDemo)
+        {
+            return;
+        }
+
         try
         {
             using RegistryKey? key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
@@ -47,6 +52,11 @@ internal static class StartupManager
 
     public static bool SetEnabled(bool enabled)
     {
+        if (AppPaths.IsDemo)
+        {
+            return false; // demo mode never changes the installed copy's registry
+        }
+
         try
         {
             using RegistryKey? key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true)

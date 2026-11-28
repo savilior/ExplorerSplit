@@ -7,7 +7,7 @@ namespace Explorer2.UI;
 
 internal sealed class TrayApplicationContext : ApplicationContext
 {
-    public const string IpcPipeName = "Explorer2_WindowIPC";
+    public static readonly string IpcPipeName = "Explorer2_WindowIPC" + AppPaths.InstanceSuffix;
     private const int HotkeyId = 1;
 
     private readonly AppSettings _settings;
@@ -76,7 +76,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _notifyIcon = new NotifyIcon
         {
             Icon = _trayIcon,
-            Text = "Explorer2 — File Explorer",
+            Text = AppPaths.IsDemo ? "Explorer2 (demo)" : "Explorer2 — File Explorer",
             ContextMenuStrip = _menu,
             Visible = true
         };
@@ -254,6 +254,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void OnToggleReplaceDefaultExplorer(object? sender, EventArgs e)
     {
+        if (AppPaths.IsDemo)
+        {
+            return; // a demo instance must not take over File Explorer
+        }
+
         _settings.ReplaceDefaultExplorer = !_settings.ReplaceDefaultExplorer;
         _settings.Save();
 

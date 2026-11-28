@@ -19,8 +19,7 @@ internal sealed class AppSettings
         Converters = { new JsonStringEnumConverter() }
     };
 
-    private static string SettingsDirectory =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Explorer2");
+    private static string SettingsDirectory => AppPaths.DataDirectory;
 
     private static string SettingsFilePath => Path.Combine(SettingsDirectory, "settings.json");
 
@@ -32,7 +31,7 @@ internal sealed class AppSettings
     {
         try
         {
-            if (!File.Exists(SettingsFilePath) && File.Exists(LegacySettingsFilePath))
+            if (!AppPaths.IsDemo && !File.Exists(SettingsFilePath) && File.Exists(LegacySettingsFilePath))
             {
                 Directory.CreateDirectory(SettingsDirectory);
                 File.Copy(LegacySettingsFilePath, SettingsFilePath);

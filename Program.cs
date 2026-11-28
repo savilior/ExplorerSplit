@@ -6,7 +6,7 @@ namespace Explorer2;
 
 internal static class Program
 {
-    private const string CoordinatorMutexName = @"Local\Explorer2_Coordinator_Mutex";
+    private static readonly string CoordinatorMutexName = @"Local\Explorer2_Coordinator_Mutex" + AppPaths.InstanceSuffix;
 
     [STAThread]
     private static void Main(string[] args)
@@ -37,9 +37,14 @@ internal static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
-        // Right-click on the taskbar button: Favorites and recent folders
-        TaskbarJumpList.Start(() => Core.FolderHistory.Paths);
-        Core.FolderHistory.Changed += TaskbarJumpList.Schedule;
+        // Right-click on the taskbar button: Favorites and recent folders (the installed copy's list,
+        // so not in demo mode)
+        if (!AppPaths.IsDemo)
+        {
+            TaskbarJumpList.Start(() => Core.FolderHistory.Paths);
+            Core.FolderHistory.Changed += TaskbarJumpList.Schedule;
+        }
+
         Application.ApplicationExit += (_, _) => Core.FolderHistory.Save();
 
         if (isCoordinator)

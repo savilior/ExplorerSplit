@@ -62,8 +62,7 @@ internal static class Favorites
     private static string FilePath =>
         Environment.GetEnvironmentVariable("EXPLORER2_FAVORITES_FILE") is { Length: > 0 } overridePath
             ? overridePath
-            : System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Explorer2", "favorites.json");
+            : System.IO.Path.Combine(Configuration.AppPaths.DataDirectory, "favorites.json");
 
     /// <summary>The top-level entries. The first call loads the file (or copies the Quick access pins).</summary>
     public static List<FavoriteNode> Roots
