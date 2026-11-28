@@ -67,6 +67,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _unpairAllItem,
             exitItem
         ]);
+        if (!AppPaths.IsDemo)
+        {
+            _menu.Items.Insert(1, new ToolStripMenuItem("Take the Tour", null, (_, _) => TourLauncher.Launch()));
+        }
         _menu.Opening += (_, _) =>
         {
             RebuildTrayPreferences();
@@ -190,7 +194,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void RefreshOverlayForWindow(IntPtr explorerHwnd)
     {
-        if (_disposed)
+        // Demo mode leaves File Explorer's windows to the installed Explorer2
+        if (_disposed || AppPaths.IsDemo)
         {
             return;
         }
@@ -202,7 +207,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void UpdateContextualHotkey(IntPtr explorerHwnd)
     {
-        if (_disposed)
+        if (_disposed || AppPaths.IsDemo)
         {
             return;
         }
@@ -368,7 +373,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     /// <summary>
     /// Colors are set when a window is built, so open windows are reopened in place to show the theme.
     /// </summary>
-    private void SetTheme(ThemeMode mode)
+    internal void SetTheme(ThemeMode mode)
     {
         if (_settings.Theme == mode)
         {
@@ -475,7 +480,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _unpairAllItem.Text = winCount > 0 ? $"Close All Windows ({winCount})" : "Close All Windows";
     }
 
-    private void ExitApplication()
+    /// <summary>The open Explorer2 windows, oldest first.</summary>
+    internal IReadOnlyList<DualPaneExplorerForm> Windows => _splitManager.Windows;
+
+    internal ThemeMode Theme => _settings.Theme;
+
+    internal void ExitApplication()
     {
         Dispose(true);
         ExitThread();

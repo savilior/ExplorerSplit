@@ -32,6 +32,7 @@ The main difference is **Split mode**: two file panes side by side in one window
 - **Explorer2 button on File Explorer's title bar** — click the Explorer2 icon on a native File Explorer window to open that folder in Explorer2's split view.
 - **Tray app** — runs in the background, opens new windows instantly, optional start with Windows.
 - Light and dark mode follow the Windows theme, or pick one in the tray menu or **...** → **Preferences** (**Theme**); it applies at once.
+- **Guided tour** — **...** → **Take the tour** shows the main features in a demo window, with a voice and captions. See [Guided tour](#guided-tour).
 
 ## Requirements
 
@@ -102,6 +103,20 @@ dotnet publish Explorer2.csproj -c Release -r win-x64 --self-contained false -o 
 3. Delete the install folder (`%LOCALAPPDATA%\Programs\Explorer2`) and the settings folder (`%APPDATA%\Explorer2`).
 
 ## Help
+
+### Guided tour
+
+**...** → **Take the tour** (or the tray menu → **Take the Tour**) opens a demo window that shows the main features in four chapters: faster selection, your work environment, Favorites and the two panes. The tour works the app by itself, points at each thing with a drawn cursor and a highlight, and reads each step aloud with captions.
+
+It runs on sample folders in `%TEMP%\Explorer2Tour`, as a separate demo Explorer2 with its own settings and Favorites, so your files, settings and Favorites are never touched. It sends no real keys or mouse clicks, so your mouse stays yours while it plays.
+
+| Control | What it does |
+|---|---|
+| Bar at the bottom right | **Back** (restart the chapter, or the one before), **Play / Pause**, **Next chapter**, **Captions** on/off, **Voice** on/off, **Close** |
+| **Esc** | Ends the tour |
+| Another program in front | The tour pauses and hides its drawings; it goes on when you come back |
+
+The voice is a Windows voice (installed under **Settings → Time & language → Speech**). The tour's texts are in `Tour\tour.en.json` next to `Explorer2.exe`. To translate them, copy it to `tour.<language>.json` (for example `tour.de.json`) and translate the texts. The tour picks the file for the Windows display language and the voice for that language. Running `Explorer2.exe --take-tour` starts the tour from a shortcut or the command line.
 
 ### Windows and tabs
 
@@ -205,6 +220,7 @@ The same settings are also in every window under **...** → **Preferences**.
 | Item | What it does |
 |---|---|
 | **New Explorer2 Window** | Opens a new window |
+| **Take the Tour** | Plays the [guided tour](#guided-tour) in a demo window |
 | **Replace Default File Explorer** | Opens folders and **Win+E** in Explorer2 |
 | **Start in Split Mode by Default** | New windows open with two panes |
 | **Always Use Details View & Group: None** | Forces Details view without grouping in every folder |

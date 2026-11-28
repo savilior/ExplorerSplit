@@ -26,6 +26,13 @@
     <Description>Explorer2 — lightweight Windows 11 side-by-side split view companion for native File Explorer</Description>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- UI Automation (UIAutomationClient), for the guided tour to find items in the shell's file list -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+    <!-- The guided tour's texts, one file per language -->
+    <None Update="Tour\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!--
     Version from git: the last vX.Y.Z tag plus the commits since it, e.g. tag v1.0.0 and 15 commits
     later = 1.0.15, shown in About with the commit id ("1.0.15+89c6e24"). No manual bumping between

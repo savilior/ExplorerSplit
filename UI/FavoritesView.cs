@@ -121,8 +121,7 @@ internal sealed class FavoritesView : Control
         _rowHeight = rowHeight;
         _padTop = _isTopList ? 0 : 4;
 
-        // The window text names the list for accessibility tools; tools\record-guide.ps1 also checks
-        // it, so a scripted drop lands only on a Favorites list, never in the folder tree
+        // The window text names the list for accessibility tools
         Text = "Explorer2 Favorites";
         AccessibleName = "Favorites";
 
@@ -1273,6 +1272,45 @@ internal sealed class FavoritesView : Control
         {
             using CommanderPromptDialog dialog = new(title, message, initial, ok, _host.IsDarkMode);
             return dialog.ShowDialog(_host.OwnerForm) == DialogResult.OK ? dialog.InputText : null;
+        }
+    }
+
+    // ---------------------------------------------------------------- guided tour
+
+    private int TourRowIndex(FavoriteNode node) => _rows.FindIndex(r => r.Node == node);
+
+    /// <summary>Screen rectangle of the row that shows <paramref name="node"/>, or empty when it isn't shown.</summary>
+    internal Rectangle TourRowRect(FavoriteNode node) =>
+        TourRowIndex(node) is >= 0 and var i ? RowScreenRect(i) : Rectangle.Empty;
+
+    /// <summary>Screen rectangle of the last row's bottom edge (a drop there adds at the end).</summary>
+    internal Rectangle TourEndRect()
+    {
+        Rectangle last = _rows.Count > 0 ? RowScreenRect(_rows.Count - 1) : RectangleToScreen(new Rectangle(0, 0, Width, _rowHeight));
+        return new Rectangle(last.Left, last.Bottom - _rowHeight / 6 - 1, last.Width, _rowHeight / 6);
+    }
+
+    internal void TourOpenFlyout(FavoriteNode node) => OpenFlyout(TourRowIndex(node));
+
+    /// <summary>Keeps the flyouts open wherever the real mouse is, until disposed.</summary>
+    internal IDisposable TourHoldFlyouts() => _host.Flyouts.Suspend();
+
+    internal void TourCloseFlyouts() => _host.Flyouts.CloseAll();
+
+    internal void TourActivate(FavoriteNode node)
+    {
+        if (TourRowIndex(node) is >= 0 and var i)
+        {
+            Activate(_rows[i]);
+        }
+    }
+
+    internal void TourShowMenu(FavoriteNode node)
+    {
+        if (TourRowIndex(node) is >= 0 and var i)
+        {
+            Rectangle r = RowRect(i);
+            ShowMenu(i, new Point(r.Left + r.Width / 3, r.Top + r.Height / 2));
         }
     }
 

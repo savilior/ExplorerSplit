@@ -6,15 +6,28 @@ namespace Explorer2;
 
 internal static class Program
 {
-    private static readonly string CoordinatorMutexName = @"Local\Explorer2_Coordinator_Mutex" + AppPaths.InstanceSuffix;
+    internal const string CoordinatorMutexPrefix = @"Local\Explorer2_Coordinator_Mutex";
+    internal const string TourArgument = "--tour";
+    private static readonly string CoordinatorMutexName = CoordinatorMutexPrefix + AppPaths.InstanceSuffix;
 
     [STAThread]
     private static void Main(string[] args)
     {
+        // --take-tour: what "Take the tour" does (sample folders, then the demo Explorer2 that plays it)
+        if (args.Contains("--take-tour", StringComparer.OrdinalIgnoreCase))
+        {
+            Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+            TourLauncher.Launch();
+            return;
+        }
+
         // --standalone: one window, no tray and no hand-off to a running Explorer2. Lets a test
         // build run next to the installed copy without touching it.
         bool standalone = args.Contains("--standalone", StringComparer.OrdinalIgnoreCase);
-        args = args.Where(a => !a.Equals("--standalone", StringComparison.OrdinalIgnoreCase)).ToArray();
+        // --tour: play the guided tour. Only in demo mode, since the tour changes Favorites and settings.
+        bool tour = AppPaths.IsDemo && args.Contains(TourArgument, StringComparer.OrdinalIgnoreCase);
+        args = args.Where(a => !a.Equals("--standalone", StringComparison.OrdinalIgnoreCase) &&
+                               !a.Equals(TourArgument, StringComparison.OrdinalIgnoreCase)).ToArray();
 
         string? startupFolder = args.Length > 0 && !string.IsNullOrWhiteSpace(args[0])
             ? args[0]
@@ -55,6 +68,11 @@ internal static class Program
             }
 
             using TrayApplicationContext context = new(startupFolder);
+            if (tour)
+            {
+                GuidedTour.Start(context);
+            }
+
             Application.Run(context);
         }
         else

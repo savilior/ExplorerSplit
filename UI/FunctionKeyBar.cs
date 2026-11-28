@@ -77,6 +77,10 @@ internal sealed class FunctionKeyBar : Control
         return widest + HorizontalPadding * 2;
     }
 
+    /// <summary>Screen rectangle of a function key's button (the guided tour points at it).</summary>
+    internal Rectangle ButtonScreenRect(Keys key) =>
+        Array.FindIndex(Buttons, b => b.Key == key) is >= 0 and var i ? RectangleToScreen(GetButtonRect(i)) : Rectangle.Empty;
+
     private Rectangle GetButtonRect(int index) =>
         new(index * (_buttonWidth + ButtonSpacing), 0, _buttonWidth, Height);
 

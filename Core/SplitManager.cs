@@ -96,6 +96,9 @@ internal sealed class SplitManager : IDisposable
         return Task.CompletedTask;
     }
 
+    /// <summary>The open Explorer2 windows, oldest first.</summary>
+    public IReadOnlyList<DualPaneExplorerForm> Windows => _windows.Where(f => !f.IsDisposed).ToList();
+
     public void OpenNewWindow(
         string? leftPath = null,
         string? rightPath = null,

@@ -2023,6 +2023,49 @@ internal sealed class ExplorerTabInstance : ShellBrowserInterop.IExplorerBrowser
         }
     }
 
+    /// <summary>The file list's window (the guided tour sends it keys), or zero.</summary>
+    public IntPtr FileListHandle
+    {
+        get
+        {
+            if (_browser is null || _disposed)
+            {
+                return IntPtr.Zero;
+            }
+
+            Guid iidView = ShellBrowserInterop.IidIShellView;
+            if (_browser.GetCurrentView(ref iidView, out object? viewObj) != 0 ||
+                viewObj is not ShellBrowserInterop.IShellView shellView)
+            {
+                return IntPtr.Zero;
+            }
+
+            try
+            {
+                if (shellView.GetWindow(out IntPtr viewHwnd) != 0 || viewHwnd == IntPtr.Zero)
+                {
+                    return IntPtr.Zero;
+                }
+
+                IntPtr list = NativeMethods.FindWindowEx(viewHwnd, IntPtr.Zero, "DirectUIHWND", null);
+                if (list == IntPtr.Zero)
+                {
+                    list = NativeMethods.FindWindowEx(viewHwnd, IntPtr.Zero, "SysListView32", null);
+                }
+
+                return list != IntPtr.Zero ? list : viewHwnd;
+            }
+            catch
+            {
+                return IntPtr.Zero;
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(shellView);
+            }
+        }
+    }
+
     public void FocusFileListView()
     {
         if (_browser is null || _disposed)

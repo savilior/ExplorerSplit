@@ -364,6 +364,14 @@ internal static class Favorites
         }
     }
 
+    /// <summary>Replaces the whole list (the guided tour resets its sample Favorites with it).</summary>
+    public static void ResetTo(IEnumerable<FavoriteNode> entries)
+    {
+        Roots.Clear();
+        Roots.AddRange(entries);
+        Commit();
+    }
+
     public static void Rename(FavoriteNode node, string? name)
     {
         node.Name = string.IsNullOrWhiteSpace(name) ? (node.IsGroup ? node.Name : null) : name.Trim();

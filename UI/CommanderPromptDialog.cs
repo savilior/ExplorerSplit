@@ -114,6 +114,13 @@ internal sealed class CommanderPromptDialog : Form
 
     public string InputText => _input.Text.Trim();
 
+    /// <summary>The text box (the guided tour types into it).</summary>
+    internal TextBox Input => _input;
+
+    internal Button? OkButton => AcceptButton as Button;
+
+    internal Button? CloseButton => CancelButton as Button;
+
     public bool IsChecked => _checkBox?.Checked == true;
 
     protected override void Dispose(bool disposing)

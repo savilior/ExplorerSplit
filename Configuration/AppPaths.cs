@@ -4,10 +4,13 @@ namespace Explorer2.Configuration;
 /// Where Explorer2 keeps its data, and demo mode. Setting EXPLORER2_DATA_DIR to a folder runs a
 /// separate Explorer2 (its own tray, settings, favorites and history in that folder) next to the
 /// installed one without touching it. Demo mode never changes the registry (default File Explorer,
-/// run at startup) and leaves the taskbar jump list alone. Used by tools\record-guide.ps1.
+/// run at startup), leaves the taskbar jump list and File Explorer's windows alone. The guided tour
+/// (UI\Tour) runs in demo mode.
 /// </summary>
 internal static class AppPaths
 {
+    public const string DemoSuffix = "_Demo";
+
     private static readonly string? DemoDataDirectory =
         Environment.GetEnvironmentVariable("EXPLORER2_DATA_DIR") is { Length: > 0 } dir ? dir : null;
 
@@ -17,5 +20,5 @@ internal static class AppPaths
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Explorer2");
 
     /// <summary>Added to the names that tie Explorer2's processes together (mutex, pipe).</summary>
-    public static string InstanceSuffix => IsDemo ? "_Demo" : string.Empty;
+    public static string InstanceSuffix => IsDemo ? DemoSuffix : string.Empty;
 }

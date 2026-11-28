@@ -2882,6 +2882,11 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             menu.Items.Add(preferences);
         }
 
+        if (!Configuration.AppPaths.IsDemo)
+        {
+            Add("Take the tour", Win11MenuRenderer.Glyph(""), TourLauncher.Launch);
+        }
+
         // Explorer2's own additions, below the File Explorer commands
         menu.Items.Add(new ToolStripSeparator());
         Add("Open in Terminal", Win11MenuRenderer.Glyph(""), OpenActiveFolderInTerminal);
@@ -3690,10 +3695,10 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             }
         }
 
-        if (m.Msg == NativeMethods.WM_KEYDOWN && Form.ActiveForm == this)
+        if (m.Msg == NativeMethods.WM_KEYDOWN && (Form.ActiveForm == this || _tourKeyModifiers is not null))
         {
             Keys keyCode = (Keys)m.WParam.ToInt32() & Keys.KeyCode;
-            Keys modifiers = Control.ModifierKeys;
+            Keys modifiers = _tourKeyModifiers ?? Control.ModifierKeys;
 
             if (IsSplitToggleHotkey(keyCode, modifiers))
             {

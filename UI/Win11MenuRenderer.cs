@@ -43,8 +43,12 @@ internal sealed class Win11MenuRenderer : ToolStripProfessionalRenderer
         };
 
         ApplyRoundedCornersOnHandle(menu);
+        menu.Opened += (_, _) => LastOpenedMenu = menu;
         return menu;
     }
+
+    /// <summary>The menu that opened last (the guided tour points at its items).</summary>
+    internal static ContextMenuStrip? LastOpenedMenu { get; private set; }
 
     public static ToolStripMenuItem CreateMenuItem(
         string text,

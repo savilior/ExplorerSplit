@@ -1,0 +1,74 @@
+{
+  // The guided tour's words. To translate: copy this file to tour.<language>.json (for example
+  // tour.he.json or tour.de-DE.json), translate the texts and set "language". The tour picks the
+  // file for the Windows display language and reads it with that language's Windows voice.
+  "language": "en-US",
+
+  "chapters": [
+    "Faster selection",
+    "Your work environment",
+    "Favorites",
+    "Two panes"
+  ],
+
+  "ui": {
+    "title": "Explorer2 tour",
+    "back": "Back: restart this chapter, or the one before",
+    "play": "Play",
+    "pause": "Pause",
+    "next": "Next chapter",
+    "captionsOn": "Show captions",
+    "captionsOff": "Hide captions",
+    "voiceOn": "Turn the voice on",
+    "voiceOff": "Turn the voice off",
+    "noVoice": "No Windows voice is installed for this language",
+    "close": "Close the tour (Esc)",
+    "finished": "End of the tour",
+    "stopped": "The tour stopped here.",
+    "waitedFor": "Waited too long for {0}.",
+    "noWindow": "The demo window was closed.",
+    "noFavorites": "The Favorites list isn't shown.",
+    "noItem": "The menu item \"{0}\" was not found.",
+    "theMenu": "the menu",
+    "theDialog": "the dialog",
+    "theWindow": "the window",
+    "theSplit": "the second pane",
+    "wrongTarget": "The copy wasn't going to the sample Backup folder, so it was not made.",
+    "renameTo": "Client work",
+    "groupName": "Reading"
+  },
+
+  "lines": {
+    "welcome": "Welcome to Explorer2. This tour plays in a demo window with sample folders, so your own files are never touched.",
+    "c1.native": "Explorer2 looks and works like File Explorer: the same menus, icons and commands. A few things are faster, starting with selection.",
+    "c1.space": "Space selects the item under the cursor and moves down to the next one. Press it again to keep selecting.",
+    "c1.arrows": "The arrow keys move the cursor and keep what's selected. Space on a selected item clears it.",
+    "c1.esc": "Escape clears the selection.",
+    "c1.starAll": "Star, on the number pad, selects everything when nothing is selected.",
+    "c1.starInvert": "When something is selected, star inverts the selection: the rest gets selected instead.",
+    "c1.escAny": "And whatever is selected, Escape clears it.",
+
+    "c2.intro": "Explorer2's own settings are in the See more menu, under Preferences.",
+    "c2.default": "Replace Default File Explorer opens folders in Explorer2, wherever you open them in Windows.",
+    "c2.button": "The title bar button adds an Explorer2 button to File Explorer's own windows, to switch them to Explorer2 with one click.",
+    "c2.theme": "The theme applies at once. Here is the dark theme.",
+    "c2.after": "No restart: the window reopens in place, with the same folders and tabs.",
+
+    "c3.intro": "The pinned section is a full Favorites list.",
+    "c3.dragFile": "Drag any item from the files into it, even a file. Right-clicking an item and choosing Add to Favorites works too.",
+    "c3.nest": "Drop an item onto a favorite to nest it there.",
+    "c3.flyout": "Point at a favorite with nested items and they fly out, each level below the one before.",
+    "c3.open": "Click one to open it in the active pane.",
+    "c3.rename": "You can rename a favorite. Only its name in the list changes, not the real folder.",
+    "c3.group": "And groups keep related folders and files together.",
+
+    "c4.intro": "The main feature: two panes side by side. Control, Shift, S turns split mode on and off.",
+    "c4.tab": "Tab moves between the two panes.",
+    "c4.mark": "Mark the files to copy with Space.",
+    "c4.keys": "The bottom row has the function keys: view, edit, copy, move, new folder and delete. The active pane is the source, and the other pane is the target.",
+    "c4.copy": "F5 copies the marked files to the other pane's folder. The destination can be changed before you confirm.",
+    "c4.done": "The files are in the other pane's folder.",
+
+    "end": "That's the tour. Keep trying things in this demo window, or close it to finish."
+  }
+}
