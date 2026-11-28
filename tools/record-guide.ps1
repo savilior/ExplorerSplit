@@ -30,6 +30,9 @@ public static class Guide {
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint f, IntPtr e);
   [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr v);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  public static uint ForegroundPid() { uint pid; GetWindowThreadProcessId(GetForegroundWindow(), out pid); return pid; }
 }
 "@
 [Guide]::SetProcessDpiAwarenessContext([IntPtr]-4) | Out-Null   # per-monitor v2: real pixels
@@ -90,7 +93,18 @@ function Pump([double]$seconds) {
     while ((Get-Date) -lt $end) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 30 }
 }
 function Say([string]$text, [double]$hold = 2.2) { $label.Text = $text; $caption.Refresh(); Pump $hold }
-function Front { [Guide]::SetForegroundWindow($h) | Out-Null; Pump 0.3 }
+function Front {
+    # Keys and clicks must only ever reach Explorer2 (its window, menus or dialogs): stop otherwise
+    if ([Guide]::ForegroundPid() -ne $proc.Id) {
+        # Windows lets a process take the foreground after it sends input; an Alt tap is harmless
+        [Guide]::keybd_event(0x12, 0, 0, [IntPtr]::Zero); [Guide]::keybd_event(0x12, 0, 2, [IntPtr]::Zero)
+        [Guide]::SetForegroundWindow($h) | Out-Null
+        Pump 0.4
+    }
+
+    if ([Guide]::ForegroundPid() -ne $proc.Id) { throw "Explorer2 is not in front; stopping so no keys reach another program" }
+    Pump 0.1
+}
 $vk = @{ Esc = 0x1B; Enter = 0x0D; Tab = 0x09; Space = 0x20; Down = 0x28; Up = 0x26; Right = 0x27; Left = 0x25
          F3 = 0x72; F5 = 0x74; F7 = 0x76; Ctrl = 0x11; Shift = 0x10; Alt = 0x12; S = 0x53; E = 0x45; F = 0x46; Home = 0x24 }
 function Key([string[]]$chord, [double]$after = 0.6) {
