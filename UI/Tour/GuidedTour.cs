@@ -461,7 +461,7 @@ internal sealed class GuidedTour : IMessageFilter
         await Gate(ct);
         if (_voiceOn && _voice.IsAvailable)
         {
-            await _voice.SpeakAsync(text, () => Gate(ct), ct);
+            await _voice.SpeakAsync(key, text, () => Gate(ct), ct);
         }
         else
         {

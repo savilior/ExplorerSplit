@@ -24,7 +24,7 @@ internal static class TourSamples
     private static readonly (string Name, string Text)[] Files =
     [
         ("Budget.csv", "Item,Cost\r\nLaptop stand,51\r\nCables,12\r\n"),
-        ("Notes.txt", "Explorer2 tour\r\n\r\nSplit mode, tabs, Favorites and Total Commander keys in one window.\r\n"),
+        ("Notes.txt", "Explorer2 tour\r\n\r\nSplit mode, tabs, Favorites and two-pane keys in one window.\r\n"),
         ("Plan.md", "# Plan\r\n- Try split mode\r\n- Pin favorites\r\n"),
         ("Readme.txt", "Sample files for the Explorer2 tour.\r\n"),
         (@"Invoices\2026\Invoice 001.txt", "Invoice 001\r\n")

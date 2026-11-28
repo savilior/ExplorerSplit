@@ -1,6 +1,6 @@
 # Explorer2
 
-A Windows 11 File Explorer replacement with **tabs, a side-by-side split view and Total Commander style keyboard control** — built on the native Windows shell, so file lists, context menus, thumbnails, drag & drop, previews and sharing all behave exactly like File Explorer.
+A Windows 11 File Explorer replacement with **tabs, a side-by-side split view and two-pane file manager keyboard control** — built on the native Windows shell, so file lists, context menus, thumbnails, drag & drop, previews and sharing all behave exactly like File Explorer.
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-blue) ![.NET](https://img.shields.io/badge/.NET-8.0-purple) ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -10,19 +10,21 @@ Explorer2 looks and works like the Windows File Explorer you already know: the s
 
 The main difference is **Split mode**: two file panes side by side in one window. Copying or moving files between two folders no longer means opening a second File Explorer window and arranging the two windows next to each other. Open both folders in one window and drag files across, or press **F5** to copy and **F6** to move to the other pane.
 
+Split mode and its keyboard control are inspired by the dual-pane file managers of the 1980s.
+
 ## Features
 
 - **Native file views** — each tab hosts the real Windows shell view, not a re-implementation.
 - **Tabs** in the title bar, Windows 11 style; drag tabs between panes.
 - **Split mode** — two panes side by side, each with its own tabs (toggle with **Ctrl+Shift+S** or the **Split** button).
-- **Total Commander style marking in both modes**: Space/Insert to mark, Num * to invert, and the arrow keys move a visible cursor without dropping the marks.
-- **Total Commander style function keys in split mode**: F3 viewer, F4 edit, F5 copy, F6 move, F7 new folder, F8 delete, with a function-key bar in the status bar.
+- **Two-pane file manager marking in both modes**: Space/Insert to mark, Num * to invert, and the arrow keys move a visible cursor without dropping the marks.
+- **Two-pane file manager function keys in split mode**: F3 viewer, F4 edit, F5 copy, F6 move, F7 new folder, F8 delete, with a function-key bar in the status bar.
 - **Favorites in the navigation pane** (instead of the Quick access pins): folders and files you pin, in groups (also groups inside groups). Rest the mouse on a group and its contents open to the side; click to open in the active pane, or click the small icon at the right of a folder to open it in a new tab. Drag to add and reorder. See [Favorites](#favorites).
 - **Recent folders**: the arrow at the right end of the address bar lists the folders you opened lately (newest first, kept between sessions, with **Clear history**).
 - **Taskbar right-click**: like File Explorer's pinned folders, right-clicking Explorer2 on the taskbar lists your Favorites (each top-level group under its own heading) and recent folders; each opens in a new window.
 - **A clear cursor in the file list**: after keyboard use, the current item gets a bold outline (black, or white in dark mode), easy to see even on a multiple selection.
 - **Reorder Quick access in the navigation pane** (with Favorites turned off): drag a pinned folder to the top or bottom edge of another pinned folder; a line shows where it will go. The pane shows the new order at once and Windows' pin list is updated in the background (a few seconds for a long move). Changes made in File Explorer or other apps appear in open Explorer2 windows right away.
-- **F3 quick viewer** (like Total Commander's Lister) — native previews for PDF and Office files, images, text (UTF-8 / UTF-16 / ANSI) and hex.
+- **F3 quick viewer** — native previews for PDF and Office files, images, text (UTF-8 / UTF-16 / ANSI) and hex.
 - **Preview pane** using the registered Windows preview handlers (PDF, Word, Excel, PowerPoint, mail, …).
 - **Native Share sheet**, Sort / Group by / View menus, breadcrumb address bar.
 - **See more (…) menu like File Explorer's** — Undo / Redo, Pin to Quick access, Compress to ZIP file, Add to favorites, Copy path, selection commands, Properties and Options; on **This PC** also Map / Disconnect network drive, Add a network location and Connect to a media server. Explorer2 adds Open in Terminal and, in split mode, Sync other pane to this folder.
@@ -116,7 +118,7 @@ It runs on sample folders in `%TEMP%\Explorer2Tour`, as a separate demo Explorer
 | **Esc** | Ends the tour |
 | Another program in front | The tour pauses and hides its drawings; it goes on when you come back |
 
-The voice is a Windows voice (installed under **Settings → Time & language → Speech**). The tour's texts are in `Tour\tour.en.json` next to `Explorer2.exe`. To translate them, copy it to `tour.<language>.json` (for example `tour.de.json`) and translate the texts. The tour picks the file for the Windows display language and the voice for that language. Running `Explorer2.exe --take-tour` starts the tour from a shortcut or the command line.
+The English voice is recorded with [Kokoro](https://github.com/hexgrad/kokoro) (Apache 2.0), an offline neural voice, and ships as small MP3 files in `Tour\voice\en-US`. A line with no recording of its current text, such as a translated or edited one, is read by a Windows voice (installed under **Settings → Time & language → Speech**). After editing lines, run `tools\render-tour-voice.py` to record them again (setup steps are at the top of the script). The tour's texts are in `Tour\tour.en.json` next to `Explorer2.exe`. To translate them, copy it to `tour.<language>.json` (for example `tour.de.json`) and translate the texts. The tour picks the file for the Windows display language and the voice for that language. Running `Explorer2.exe --take-tour` starts the tour from a shortcut or the command line.
 
 ### Windows and tabs
 
@@ -173,7 +175,7 @@ Favorites are links: adding, moving or removing them never touches the folders a
 
 A favorite whose folder or file can't be found (moved, deleted, drive not connected) is shown dimmed; clicking it offers to remove it. To go back to the native Quick access pins, turn off **Favorites in Navigation Pane** in the tray menu.
 
-### Split mode (Total Commander style)
+### Split mode
 
 Toggle with **Ctrl+Shift+S** (changeable from the tray menu) or the **Split** button. **Tab** switches between the left and right pane; **Ctrl+Shift+E** goes to the navigation pane and **Tab** comes back to the active pane.
 

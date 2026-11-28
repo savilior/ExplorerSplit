@@ -31,6 +31,8 @@
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
     <!-- The guided tour's texts, one file per language -->
     <None Update="Tour\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The tour's recorded lines (tools\render-tour-voice.py), one folder per language -->
+    <None Update="Tour\voice\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!--
