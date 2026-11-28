@@ -11,7 +11,7 @@
 ## Guided tour: fix
 - [ ] Chapter 2: the Theme submenu opens near the bottom of the screen, so "Dark" may be off-screen. Open the "..." menu lower or with more room.
 
-- [ ] Listen to the Kokoro voice (af_heart). To try another voice, re-render with `--voice` and `--all` (for example am_michael or bf_emma).
+- [x] Listen to the Kokoro voice (af_heart): approved.
 
 ## Guided tour: optional
 - [ ] Add a translation (for example `Tour/tour.he.json`) to test the language and voice pick.
