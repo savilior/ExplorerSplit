@@ -108,7 +108,7 @@ dotnet publish Explorer2.csproj -c Release -r win-x64 --self-contained false -o 
 
 ### Guided tour
 
-**...** → **Take the tour** (or the tray menu → **Take the Tour**) opens a demo window that shows the main features in four chapters: faster selection, your work environment, Favorites and the two panes. The tour works the app by itself, points at each thing with a drawn cursor and a highlight, and reads each step aloud with captions.
+The tour starts by itself the first time Explorer2 runs for a new user (only once). Later, **...** → **Take the tour** (or the tray menu → **Take the Tour**) opens it again. It opens a demo window that shows the main features in four chapters: faster selection, your work environment, Favorites and the two panes. The tour works the app by itself, points at each thing with a drawn cursor and a highlight, and reads each step aloud with captions.
 
 It runs on sample folders in `%TEMP%\Explorer2Tour`, as a separate demo Explorer2 with its own settings and Favorites, so your files, settings and Favorites are never touched. It sends no real keys or mouse clicks, so your mouse stays yours while it plays.
 

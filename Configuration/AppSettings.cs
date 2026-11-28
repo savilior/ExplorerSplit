@@ -110,6 +110,13 @@ internal sealed class AppSettings
         set => StoredTopSectionHidden = value;
     }
 
+    /// <summary>
+    /// The guided tour was started on the first run (a settings file from before the tour, without
+    /// this value, reads as true). Only a new user's first run gets false, from <see cref="Load"/>
+    /// (see <see cref="IsNewUser"/>).
+    /// </summary>
+    public bool TourOffered { get; set; } = true;
+
     internal static List<string>? StoredTopSectionOrder { get; private set; }
 
     internal static List<string>? StoredTopSectionHidden { get; private set; }
@@ -149,7 +156,25 @@ internal sealed class AppSettings
 
         AppSettings defaults = new();
         GlobalDetailsAndNoGroupEnabled = defaults.EnforceGlobalDetailsAndNoGroup;
+        defaults.TourOffered = !IsNewUser();
         return defaults;
+    }
+
+    /// <summary>
+    /// Explorer2 never ran for this user: its data folder is missing or empty. (A missing
+    /// settings.json alone isn't enough: it is written only when a setting changes, while the
+    /// Favorites and the folder history are written from the first run.)
+    /// </summary>
+    private static bool IsNewUser()
+    {
+        try
+        {
+            return !Directory.Exists(SettingsDirectory) || !Directory.EnumerateFileSystemEntries(SettingsDirectory).Any();
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public void Save()

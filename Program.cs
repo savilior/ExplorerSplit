@@ -44,7 +44,8 @@ internal static class Program
             }
         }
 
-        AppTheme.Mode = AppSettings.Load().Theme;
+        AppSettings startSettings = AppSettings.Load();
+        AppTheme.Mode = startSettings.Theme;
         AppTheme.ApplyToProcess();
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
@@ -72,6 +73,10 @@ internal static class Program
             {
                 GuidedTour.Start(context);
             }
+            else if (!AppPaths.IsDemo && !startSettings.TourOffered)
+            {
+                StartFirstRunTour();
+            }
 
             Application.Run(context);
         }
@@ -84,6 +89,26 @@ internal static class Program
                 startInSplit: settings.DefaultStartInSplitMode);
             Application.Run(standaloneForm);
         }
+    }
+
+    /// <summary>
+    /// A new user's first run: the guided tour starts (in its demo window) once the first window is
+    /// up. It is marked as offered first, so it starts only once even if it is closed at once.
+    /// </summary>
+    private static void StartFirstRunTour()
+    {
+        AppSettings settings = AppSettings.Load();
+        settings.TourOffered = true;
+        settings.Save();
+
+        System.Windows.Forms.Timer delay = new() { Interval = 1500 };
+        delay.Tick += (_, _) =>
+        {
+            delay.Stop();
+            delay.Dispose();
+            TourLauncher.Launch();
+        };
+        delay.Start();
     }
 
     private static bool TryForwardOpenWindowToCoordinator(string? folderPath)
