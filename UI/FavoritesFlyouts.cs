@@ -54,32 +54,19 @@ internal sealed class FavoritesFlyouts : IDisposable
         Rectangle sourceBounds = source.RectangleToScreen(source.ClientRectangle);
         Rectangle work = Screen.FromRectangle(anchor).WorkingArea;
         Size size = form.WantedSize(work.Height - 16);
-        int x;
-        int y;
-        if (depth == 0)
+        // Each level cascades right below its row, like a tree (above the row when there is no room
+        // below). The first one, from the navigation pane, starts two thirds across its row; deeper
+        // levels are indented one step.
+        int indent = depth == 0
+            ? Math.Max(0, sourceBounds.Left - anchor.Left) + (Math.Min(anchor.Right, sourceBounds.Right) - Math.Max(anchor.Left, sourceBounds.Left)) * 2 / 3
+            : (int)Math.Round(20 * source.DeviceDpi / 96f);
+        int x = Math.Clamp(anchor.Left + indent, work.Left, Math.Max(work.Left, work.Right - size.Width));
+        int y = anchor.Bottom;
+        if (y + size.Height > work.Bottom)
         {
-            // From the navigation pane: to the right of it (to the left when there is no room)
-            x = sourceBounds.Right + 2;
-            if (x + size.Width > work.Right)
-            {
-                x = Math.Max(work.Left, sourceBounds.Left - size.Width - 2);
-            }
-
-            y = Math.Clamp(anchor.Top - 4, work.Top + 8, Math.Max(work.Top + 8, work.Bottom - size.Height - 8));
-        }
-        else
-        {
-            // A deeper level cascades: right below its row, indented one step, like a tree
-            // (above the row when there is no room below)
-            int indent = (int)Math.Round(20 * source.DeviceDpi / 96f);
-            x = Math.Clamp(anchor.Left + indent, work.Left, Math.Max(work.Left, work.Right - size.Width));
-            y = anchor.Bottom;
-            if (y + size.Height > work.Bottom)
-            {
-                y = anchor.Top - size.Height >= work.Top
-                    ? anchor.Top - size.Height
-                    : Math.Max(work.Top, work.Bottom - size.Height);
-            }
+            y = anchor.Top - size.Height >= work.Top
+                ? anchor.Top - size.Height
+                : Math.Max(work.Top, work.Bottom - size.Height);
         }
 
         form.Bounds = new Rectangle(x, y, size.Width, size.Height);

@@ -131,7 +131,11 @@ internal sealed class SplitManager : IDisposable
             }
         }
 
-        DualPaneExplorerForm form = new(effectiveLeft, effectiveRight, bounds, splitMode);
+        ShowWindow(new DualPaneExplorerForm(effectiveLeft, effectiveRight, bounds, splitMode));
+    }
+
+    private void ShowWindow(DualPaneExplorerForm form, WindowLayout? layout = null)
+    {
         form.FormClosed += (_, _) =>
         {
             _windows.Remove(form);
@@ -140,9 +144,43 @@ internal sealed class SplitManager : IDisposable
 
         _windows.Add(form);
         form.Show();
+        if (layout is not null)
+        {
+            form.ApplyLayout(layout);
+        }
+
         form.Activate();
         NativeMethods.SetForegroundWindow(form.Handle);
         StateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Reopens every window in place (same position, split, tabs and folders), so a setting that is
+    /// applied when a window is built, such as the theme, shows at once. The active window is
+    /// reopened last, so it stays in front.
+    /// </summary>
+    public void ReopenAllWindows()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        CleanupClosedWindows();
+        Form? active = Form.ActiveForm;
+        List<DualPaneExplorerForm> old = _windows.Where(f => !f.IsDisposed)
+            .OrderBy(f => f == active)
+            .ToList();
+
+        foreach (DualPaneExplorerForm form in old)
+        {
+            WindowLayout layout = form.CaptureLayout();
+            string left = layout.LeftTabs.FirstOrDefault() ?? ExplorerDetector.StartLocation;
+            string right = layout.RightTabs.FirstOrDefault() ?? left;
+            ShowWindow(new DualPaneExplorerForm(left, right, layout.Bounds, layout.Split), layout);
+            form.Close();
+            form.Dispose();
+        }
     }
 
     public void ToggleSplit(IntPtr hwnd)

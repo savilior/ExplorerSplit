@@ -300,20 +300,15 @@ internal sealed class TrayApplicationContext : ApplicationContext
     }
 
     /// <summary>
-    /// Favorites (on) or the native Quick access pins (off) in the navigation pane. Like the theme it
-    /// applies to new windows.
+    /// Favorites (on) or the native Quick access pins (off) in the navigation pane. Like the theme, open
+    /// windows are reopened in place to show it.
     /// </summary>
     private void OnToggleFavorites(object? sender, EventArgs e)
     {
         _settings.FavoritesSection = !_settings.FavoritesSection;
         _settings.Save();
         SyncMenuState();
-
-        if (_splitManager.ActivePairCount > 0)
-        {
-            _notifyIcon.ShowBalloonTip(4000, "Explorer2",
-                "The navigation pane change applies to new windows. Reopen open windows to see it.", ToolTipIcon.Info);
-        }
+        ReopenWindowsSoon();
     }
 
     private void OnConfigureTopSection(object? sender, EventArgs e)
@@ -366,8 +361,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     }
 
     /// <summary>
-    /// New windows open in the chosen theme. Open windows keep theirs (their colors are set when
-    /// they are created), so they are offered to reopen.
+    /// Colors are set when a window is built, so open windows are reopened in place to show the theme.
     /// </summary>
     private void SetTheme(ThemeMode mode)
     {
@@ -381,11 +375,28 @@ internal sealed class TrayApplicationContext : ApplicationContext
         AppTheme.Mode = mode;
         AppTheme.ApplyToProcess();
         SyncMenuState();
+        ReopenWindowsSoon();
+    }
 
-        if (_splitManager.ActivePairCount > 0)
+    /// <summary>
+    /// Reopens the open windows in place so a change applied when a window is built shows at once.
+    /// Posted, because the change may come from a menu of one of those windows.
+    /// </summary>
+    private void ReopenWindowsSoon()
+    {
+        if (_uiSyncContext is null)
         {
-            _notifyIcon.ShowBalloonTip(4000, "Explorer2", "The theme applies to new windows. Reopen open windows to see it.", ToolTipIcon.Info);
+            _splitManager.ReopenAllWindows();
+            return;
         }
+
+        _uiSyncContext.Post(_ =>
+        {
+            if (!_disposed)
+            {
+                _splitManager.ReopenAllWindows();
+            }
+        }, null);
     }
 
     private void OnToggleStartup(object? sender, EventArgs e)

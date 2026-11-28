@@ -31,7 +31,7 @@ The main difference is **Split mode**: two file panes side by side in one window
 - **Follows File Explorer's Folder Options** — new windows and tabs open to the *Open File Explorer to* location (Home, This PC or Downloads); hidden files, extensions, check boxes and the other view options come from the native views.
 - **Explorer2 button on File Explorer's title bar** — click the Explorer2 icon on a native File Explorer window to open that folder in Explorer2's split view.
 - **Tray app** — runs in the background, opens new windows instantly, optional start with Windows.
-- Light and dark mode follow the Windows theme, or pick one in the tray menu (**Theme**).
+- Light and dark mode follow the Windows theme, or pick one in the tray menu or **...** → **Preferences** (**Theme**); it applies at once.
 
 ## Requirements
 
@@ -148,7 +148,7 @@ Favorites are links: adding, moving or removing them never touches the folders a
 | Open a favorite in the active pane | Click it (a file opens with its app) |
 | Open a folder in a new tab | Click the icon at the right of the row (it shows when the mouse is on the row), middle-click, or **Ctrl+Enter** |
 | Open a folder in the other pane (split mode) | Right-click → **Open in other pane** |
-| See a group's contents, or a link's nested links | Rest the mouse on it: they open to the side and close when the mouse leaves (a deeper level opens below its row, indented, like a tree). Click its arrow to open it in place instead (a group also opens on a click) |
+| See a group's contents, or a link's nested links | Rest the mouse on it: they open to the side and close when the mouse leaves (each level opens right below its row, indented, like a tree). Click its arrow to open it in place instead (a group also opens on a click) |
 | Add folders or files | Drag them from anywhere onto the list (a line shows where they go), or right-click them in the files or the folder tree → **Pin to Favorites** |
 | Nest links in a group or a folder link | Drop onto the middle of it. Hold the drag over one that already has entries and its flyout opens, to drop at an exact place there (or in a deeper flyout) |
 | Reorder, or move into / out of a group or link | Drag the favorite (also into and out of the side flyouts) |
@@ -209,12 +209,12 @@ The same settings are also in every window under **...** → **Preferences**.
 | **Start in Split Mode by Default** | New windows open with two panes |
 | **Always Use Details View & Group: None** | Forces Details view without grouping in every folder |
 | **Enable Title Bar Toggle Button** | Shows a split button on native File Explorer windows |
-| **Favorites in Navigation Pane** | On (default): the navigation pane shows Explorer2's [Favorites](#favorites). Off: File Explorer's Quick access pins. New windows use it |
+| **Favorites in Navigation Pane** | On (default): the navigation pane shows Explorer2's [Favorites](#favorites). Off: File Explorer's Quick access pins. Open windows reopen in place to show it |
 | **Navigation Pane Top Section...** | Turns each top row (Home, Gallery, Recycle Bin, Desktop, Downloads, Documents) on or off. Open windows update at once; drag the rows in the pane to reorder them |
 | **Ask Before F5 Copy / F6 Move** | On (default): F5/F6 ask for the destination. Off (also set by **Don't ask again** in that dialog): they copy/move straight to the other pane. Windows still asks before overwriting, and Ctrl+Z undoes |
 | **Hotkey** | Changes the split-mode hotkey (default **Ctrl+Shift+S**) |
 | **Default Right-Pane Path** | What the right pane opens: same folder as the left, Home, or a custom folder |
-| **Theme** | **Use Windows Setting** (default), **Light** or **Dark**. New windows use it; reopen open windows to see a change |
+| **Theme** | **Use Windows Setting** (default), **Light** or **Dark**. Applies at once: open windows reopen in place with the same tabs and folders |
 | **Run at Windows Startup** | Starts Explorer2 in the background when you sign in |
 | **Close All Windows** / **Exit** | Close every window / quit Explorer2 |
 
