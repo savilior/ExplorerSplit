@@ -3244,7 +3244,11 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         {
             Size = new Size(width, height),
             Margin = new Padding(1, 0, 1, 0),
-            Cursor = Cursors.Hand
+            Cursor = Cursors.Hand,
+            AccessibleName = tooltip,
+            AccessibleRole = AccessibleRole.PushButton,
+            // UI Automation names these drawn buttons from the window text (it is not painted)
+            Text = tooltip
         };
 
         bool hovered = false;

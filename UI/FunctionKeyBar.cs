@@ -55,6 +55,8 @@ internal sealed class FunctionKeyBar : Control
 
         TabStop = false;
         BackColor = _bg;
+        AccessibleName = "Function keys";
+        Text = "Function keys"; // UI Automation names the bar from its window text (not painted)
         _buttonWidth = MeasureButtonWidth();
     }
 
