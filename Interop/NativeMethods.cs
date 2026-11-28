@@ -5,6 +5,19 @@ namespace Explorer2.Interop;
 
 internal static class NativeMethods
 {
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct TRACKMOUSEEVENT
+    {
+        public uint cbSize;
+        public uint dwFlags;
+        public IntPtr hwndTrack;
+        public uint dwHoverTime;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);
+
     // WinEvent constants
     internal const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     internal const uint EVENT_SYSTEM_MOVESIZESTART = 0x000A;

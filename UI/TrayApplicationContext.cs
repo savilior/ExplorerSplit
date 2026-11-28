@@ -21,28 +21,24 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly CancellationTokenSource _ipcCts = new();
 
     private readonly ToolStripMenuItem _newWindowItem;
-    private readonly ToolStripMenuItem _replaceExplorerItem;
-    private readonly ToolStripMenuItem _defaultSplitModeItem;
-    private readonly ToolStripMenuItem _globalDetailsNoGroupItem;
-    private readonly ToolStripMenuItem _titleBarButtonItem;
-    private readonly ToolStripMenuItem _favoritesItem;
-    private readonly ToolStripMenuItem _askCopyMoveItem;
-    private readonly ToolStripMenuItem _hotkeyItem;
-    private readonly ToolStripMenuItem _sameAsLeftItem;
-    private readonly ToolStripMenuItem _homeItem;
-    private readonly ToolStripMenuItem _customPathItem;
-    private readonly ToolStripMenuItem _startupItem;
-    private readonly ToolStripMenuItem _themeSystemItem;
-    private readonly ToolStripMenuItem _themeLightItem;
-    private readonly ToolStripMenuItem _themeDarkItem;
     private readonly ToolStripMenuItem _unpairAllItem;
+    private readonly ContextMenuStrip _menu;
+    private readonly ToolStripSeparator _preferencesEnd;
+    private List<ToolStripItem> _trayPreferenceItems = new();
 
     private IntPtr _lastExplorerHwnd;
     private bool _isHotkeyRegistered;
     private bool _disposed;
 
+    /// <summary>The running tray context; windows use it for their Preferences menu.</summary>
+    internal static TrayApplicationContext? Current { get; private set; }
+
+    /// <summary>Makes one preferences menu item in the caller's menu style (radio items sit in submenus).</summary>
+    internal delegate ToolStripMenuItem PreferenceItemFactory(string text, EventHandler? onClick, bool isChecked, bool isRadio);
+
     public TrayApplicationContext(string? startupFolder = null)
     {
+        Current = this;
         _uiSyncContext = SynchronizationContext.Current;
         _settings = AppSettings.Load();
         _splitManager = new SplitManager(_settings);
@@ -57,58 +53,31 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _hotkeyWindow.HotkeyPressed += OnHotkeyPressed;
 
         _newWindowItem = new ToolStripMenuItem("New Explorer2 Window", null, (_, _) => _splitManager.OpenNewWindow());
-        _replaceExplorerItem = new ToolStripMenuItem("Replace Default File Explorer", null, OnToggleReplaceDefaultExplorer);
-        _defaultSplitModeItem = new ToolStripMenuItem("Start in Split Mode by Default", null, OnToggleDefaultSplitMode);
-        _globalDetailsNoGroupItem = new ToolStripMenuItem("Always Use Details View & Group: None", null, OnToggleGlobalDetailsAndNoGroup);
-        _titleBarButtonItem = new ToolStripMenuItem("Enable Title Bar Toggle Button", null, OnToggleTitleBarButton);
-        _favoritesItem = new ToolStripMenuItem("Favorites in Navigation Pane", null, OnToggleFavorites);
-        ToolStripMenuItem topSectionItem = new("Navigation Pane Top Section...", null, OnConfigureTopSection);
-        _askCopyMoveItem = new ToolStripMenuItem("Ask Before F5 Copy / F6 Move", null, OnToggleAskCopyMove);
-        _hotkeyItem = new ToolStripMenuItem(string.Empty, null, OnConfigureHotkey);
-
-        _sameAsLeftItem = new ToolStripMenuItem("Same as Left", null, (_, _) => SetRightPaneMode(RightPanePathMode.SameAsLeft));
-        _homeItem = new ToolStripMenuItem("Home", null, (_, _) => SetRightPaneMode(RightPanePathMode.Home));
-        _customPathItem = new ToolStripMenuItem("Custom...", null, OnSelectCustomRightPanePath);
-
-        ToolStripMenuItem rightPaneMenu = new("Default Right-Pane Path");
-        rightPaneMenu.DropDownItems.AddRange([_sameAsLeftItem, _homeItem, _customPathItem]);
-
-        _themeSystemItem = new ToolStripMenuItem("Use Windows Setting", null, (_, _) => SetTheme(ThemeMode.System));
-        _themeLightItem = new ToolStripMenuItem("Light", null, (_, _) => SetTheme(ThemeMode.Light));
-        _themeDarkItem = new ToolStripMenuItem("Dark", null, (_, _) => SetTheme(ThemeMode.Dark));
-        ToolStripMenuItem themeMenu = new("Theme");
-        themeMenu.DropDownItems.AddRange([_themeSystemItem, _themeLightItem, _themeDarkItem]);
-
-        _startupItem = new ToolStripMenuItem("Run at Windows Startup", null, OnToggleStartup);
         _unpairAllItem = new ToolStripMenuItem("Close All Windows", null, (_, _) => _splitManager.UnpairAll(closeSecondary: false));
         ToolStripMenuItem exitItem = new("Exit", null, (_, _) => ExitApplication());
+        _preferencesEnd = new ToolStripSeparator();
 
-        ContextMenuStrip menu = new();
-        menu.Items.AddRange([
+        // The preferences between the two separators are rebuilt each time the menu opens, from the
+        // same list a window's "..." > Preferences shows
+        _menu = new ContextMenuStrip();
+        _menu.Items.AddRange([
             _newWindowItem,
             new ToolStripSeparator(),
-            _replaceExplorerItem,
-            _defaultSplitModeItem,
-            _globalDetailsNoGroupItem,
-            _titleBarButtonItem,
-            _favoritesItem,
-            topSectionItem,
-            _askCopyMoveItem,
-            _hotkeyItem,
-            rightPaneMenu,
-            themeMenu,
-            _startupItem,
-            new ToolStripSeparator(),
+            _preferencesEnd,
             _unpairAllItem,
             exitItem
         ]);
-        menu.Opening += (_, _) => SyncMenuState();
+        _menu.Opening += (_, _) =>
+        {
+            RebuildTrayPreferences();
+            SyncMenuState();
+        };
 
         _notifyIcon = new NotifyIcon
         {
             Icon = _trayIcon,
             Text = "Explorer2 — File Explorer",
-            ContextMenuStrip = menu,
+            ContextMenuStrip = _menu,
             Visible = true
         };
         _notifyIcon.DoubleClick += (_, _) => _splitManager.OpenNewWindow();
@@ -426,29 +395,65 @@ internal sealed class TrayApplicationContext : ApplicationContext
         SyncMenuState();
     }
 
-    private void SyncMenuState()
+    /// <summary>
+    /// The preferences (the tray menu's settings), made fresh with their current state. The tray menu
+    /// and every window's "..." > Preferences use this list, so they always match.
+    /// </summary>
+    internal List<ToolStripItem> CreatePreferenceItems(PreferenceItemFactory make)
     {
-        _replaceExplorerItem.Checked = _settings.ReplaceDefaultExplorer;
-        _defaultSplitModeItem.Checked = _settings.DefaultStartInSplitMode;
-        _globalDetailsNoGroupItem.Checked = AppSettings.GlobalDetailsAndNoGroupEnabled;
-        _titleBarButtonItem.Checked = _settings.ShowTitleBarButton;
-        _favoritesItem.Checked = _settings.FavoritesSection;
-        _askCopyMoveItem.Checked = _settings.AskBeforeCopyMove;
-        _hotkeyItem.Text = $"Configure Hotkey ({_settings.FormatHotkey()})...";
-
-        _sameAsLeftItem.Checked = _settings.DefaultRightPaneMode == RightPanePathMode.SameAsLeft;
-        _homeItem.Checked = _settings.DefaultRightPaneMode == RightPanePathMode.Home;
-        _customPathItem.Checked = _settings.DefaultRightPaneMode == RightPanePathMode.Custom;
-        _customPathItem.Text = string.IsNullOrWhiteSpace(_settings.CustomRightPanePath)
+        RightPanePathMode mode = _settings.DefaultRightPaneMode;
+        string customText = string.IsNullOrWhiteSpace(_settings.CustomRightPanePath)
             ? "Custom..."
             : $"Custom ({_settings.CustomRightPanePath})...";
+        ToolStripMenuItem rightPaneMenu = make("Default Right-Pane Path", null, false, false);
+        rightPaneMenu.DropDownItems.AddRange([
+            make("Same as Left", (_, _) => SetRightPaneMode(RightPanePathMode.SameAsLeft), mode == RightPanePathMode.SameAsLeft, true),
+            make("Home", (_, _) => SetRightPaneMode(RightPanePathMode.Home), mode == RightPanePathMode.Home, true),
+            make(customText, OnSelectCustomRightPanePath, mode == RightPanePathMode.Custom, true)
+        ]);
 
-        _startupItem.Checked = StartupManager.IsEnabled();
+        ToolStripMenuItem themeMenu = make("Theme", null, false, false);
+        themeMenu.DropDownItems.AddRange([
+            make("Use Windows Setting", (_, _) => SetTheme(ThemeMode.System), _settings.Theme == ThemeMode.System, true),
+            make("Light", (_, _) => SetTheme(ThemeMode.Light), _settings.Theme == ThemeMode.Light, true),
+            make("Dark", (_, _) => SetTheme(ThemeMode.Dark), _settings.Theme == ThemeMode.Dark, true)
+        ]);
 
-        _themeSystemItem.Checked = _settings.Theme == ThemeMode.System;
-        _themeLightItem.Checked = _settings.Theme == ThemeMode.Light;
-        _themeDarkItem.Checked = _settings.Theme == ThemeMode.Dark;
+        return [
+            make("Replace Default File Explorer", OnToggleReplaceDefaultExplorer, _settings.ReplaceDefaultExplorer, false),
+            make("Start in Split Mode by Default", OnToggleDefaultSplitMode, _settings.DefaultStartInSplitMode, false),
+            make("Always Use Details View & Group: None", OnToggleGlobalDetailsAndNoGroup, AppSettings.GlobalDetailsAndNoGroupEnabled, false),
+            make("Enable Title Bar Toggle Button", OnToggleTitleBarButton, _settings.ShowTitleBarButton, false),
+            make("Favorites in Navigation Pane", OnToggleFavorites, _settings.FavoritesSection, false),
+            make("Navigation Pane Top Section...", OnConfigureTopSection, false, false),
+            make("Ask Before F5 Copy / F6 Move", OnToggleAskCopyMove, _settings.AskBeforeCopyMove, false),
+            make($"Configure Hotkey ({_settings.FormatHotkey()})...", OnConfigureHotkey, false, false),
+            rightPaneMenu,
+            themeMenu,
+            make("Run at Windows Startup", OnToggleStartup, StartupManager.IsEnabled(), false)
+        ];
+    }
 
+    // Only when the menu opens: the setting handlers run from these items' clicks
+    private void RebuildTrayPreferences()
+    {
+        foreach (ToolStripItem old in _trayPreferenceItems)
+        {
+            _menu.Items.Remove(old);
+            old.Dispose();
+        }
+
+        _trayPreferenceItems = CreatePreferenceItems((text, onClick, isChecked, _) =>
+            new ToolStripMenuItem(text, null, onClick) { Checked = isChecked });
+        int insertAt = _menu.Items.IndexOf(_preferencesEnd);
+        for (int i = 0; i < _trayPreferenceItems.Count; i++)
+        {
+            _menu.Items.Insert(insertAt + i, _trayPreferenceItems[i]);
+        }
+    }
+
+    private void SyncMenuState()
+    {
         int winCount = _splitManager.ActivePairCount;
         _unpairAllItem.Enabled = winCount > 0;
         _unpairAllItem.Text = winCount > 0 ? $"Close All Windows ({winCount})" : "Close All Windows";
@@ -469,6 +474,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         _disposed = true;
+        if (Current == this)
+        {
+            Current = null;
+        }
 
         if (disposing)
         {

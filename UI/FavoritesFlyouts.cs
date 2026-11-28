@@ -51,17 +51,37 @@ internal sealed class FavoritesFlyouts : IDisposable
         FavoritesFlyoutForm form = new(_host, group);
         _chain.Add((anchor, form));
 
-        // To the right of the list the row is in (to the left when there is no room)
         Rectangle sourceBounds = source.RectangleToScreen(source.ClientRectangle);
         Rectangle work = Screen.FromRectangle(anchor).WorkingArea;
         Size size = form.WantedSize(work.Height - 16);
-        int x = sourceBounds.Right + 2;
-        if (x + size.Width > work.Right)
+        int x;
+        int y;
+        if (depth == 0)
         {
-            x = Math.Max(work.Left, sourceBounds.Left - size.Width - 2);
+            // From the navigation pane: to the right of it (to the left when there is no room)
+            x = sourceBounds.Right + 2;
+            if (x + size.Width > work.Right)
+            {
+                x = Math.Max(work.Left, sourceBounds.Left - size.Width - 2);
+            }
+
+            y = Math.Clamp(anchor.Top - 4, work.Top + 8, Math.Max(work.Top + 8, work.Bottom - size.Height - 8));
+        }
+        else
+        {
+            // A deeper level cascades: right below its row, indented one step, like a tree
+            // (above the row when there is no room below)
+            int indent = (int)Math.Round(20 * source.DeviceDpi / 96f);
+            x = Math.Clamp(anchor.Left + indent, work.Left, Math.Max(work.Left, work.Right - size.Width));
+            y = anchor.Bottom;
+            if (y + size.Height > work.Bottom)
+            {
+                y = anchor.Top - size.Height >= work.Top
+                    ? anchor.Top - size.Height
+                    : Math.Max(work.Top, work.Bottom - size.Height);
+            }
         }
 
-        int y = Math.Clamp(anchor.Top - 4, work.Top + 8, Math.Max(work.Top + 8, work.Bottom - size.Height - 8));
         form.Bounds = new Rectangle(x, y, size.Width, size.Height);
         form.Show(owner);
         _outsideSince = 0;

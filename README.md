@@ -111,8 +111,10 @@ dotnet publish Explorer2.csproj -c Release -r win-x64 --self-contained false -o 
 | New tab | **Ctrl+T**, or the **+** after the tabs |
 | Close tab | **Ctrl+W**, the tab's **×**, or middle-click the tab |
 | Next / previous tab | **Ctrl+Tab** / **Ctrl+Shift+Tab** |
-| Move a tab to the other pane | Drag it across in the title bar |
-| Window menu / About | Click the Explorer2 icon at the top-left, or **Alt+Space** |
+| Move a tab to the other pane | Drag it across in the title bar, or right-click it → **Move tab to right/left pane** |
+| Tab menu | Right-click a tab: **New tab**, **Duplicate tab**, **Close tab**, **Close other tabs**, **Close tabs to the right** |
+| Window menu / About | Click the Explorer2 icon at the top-left, right-click empty title-bar space, or **Alt+Space** |
+| Snap layouts | Rest the mouse on the Maximize button (or **Win+Z**) |
 
 Closing the last tab of one pane in split mode closes that pane (the other pane's tabs stay); closing the last tab in normal mode closes the window.
 
@@ -123,6 +125,8 @@ Closing the last tab of one pane in split mode closes that pane (the other pane'
 | Back / Forward | **Alt+Left** / **Alt+Right** |
 | Up one folder | **Backspace** or **Alt+Up** |
 | Edit the address | **Ctrl+L**, **Alt+D** (and **F4** in normal mode) |
+| Address bar menu | Right-click the address bar: **Copy address as text**, **Edit address**, **Delete history** (on a folder name also **Open in new tab**) |
+| Clear the selection | **Esc** in the file list |
 | Search the current folder (Windows search, results in the same tab, updates as you type) | **Ctrl+F** (and **F3** in normal mode); **Esc**, the **X** or **Close search** ends it |
 | Refresh | **F5** in normal mode |
 | Rename | **F2** |
@@ -144,7 +148,7 @@ Favorites are links: adding, moving or removing them never touches the folders a
 | Open a favorite in the active pane | Click it (a file opens with its app) |
 | Open a folder in a new tab | Click the icon at the right of the row (it shows when the mouse is on the row), middle-click, or **Ctrl+Enter** |
 | Open a folder in the other pane (split mode) | Right-click → **Open in other pane** |
-| See a group's contents, or a link's nested links | Rest the mouse on it: they open to the side and close when the mouse leaves. Click its arrow to open it in place instead (a group also opens on a click) |
+| See a group's contents, or a link's nested links | Rest the mouse on it: they open to the side and close when the mouse leaves (a deeper level opens below its row, indented, like a tree). Click its arrow to open it in place instead (a group also opens on a click) |
 | Add folders or files | Drag them from anywhere onto the list (a line shows where they go), or right-click them in the files or the folder tree → **Pin to Favorites** |
 | Nest links in a group or a folder link | Drop onto the middle of it. Hold the drag over one that already has entries and its flyout opens, to drop at an exact place there (or in a deeper flyout) |
 | Reorder, or move into / out of a group or link | Drag the favorite (also into and out of the side flyouts) |
@@ -195,6 +199,8 @@ The automatic view uses the Windows previewer for PDF and Office files, shows im
 Click **Preview** in the command bar. It uses the same preview handlers as File Explorer. Office does not preview files downloaded from the internet until they are unblocked (file **Properties → Unblock**).
 
 ### Tray menu
+
+The same settings are also in every window under **...** → **Preferences**.
 
 | Item | What it does |
 |---|---|

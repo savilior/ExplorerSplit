@@ -166,7 +166,9 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         {
             Dock = DockStyle.Top,
             Height = 42,
-            BackColor = _titleBarBg
+            BackColor = _titleBarBg,
+            // Over Maximize the form answers HTMAXBUTTON, so Windows 11 shows Snap layouts on hover
+            IsMaximizeButton = pt => _maxCaptionBounds.Contains(pt)
         };
         _titleTabBar.Paint += OnTitleTabBarPaint;
         _titleTabBar.MouseMove += OnTitleTabBarMouseMove;
@@ -385,6 +387,7 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             }
         };
         _breadcrumbView.MouseDown += OnBreadcrumbMouseDown;
+        _breadcrumbView.MouseUp += OnBreadcrumbMouseUp;
         _breadcrumbView.Resize += (_, _) =>
         {
             RebuildBreadcrumbs(_selectedPane?.ActiveTab);
@@ -810,6 +813,11 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             return;
         }
 
+        if (HandleMaximizeButtonMessage(ref m))
+        {
+            return;
+        }
+
         if (m.Msg == NativeMethods.WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
         {
             NativeMethods.NCCALCSIZE_PARAMS ncParams =
@@ -860,6 +868,91 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             else if (top) m.Result = (IntPtr)NativeMethods.HTTOP;
             else if (bottom) m.Result = (IntPtr)NativeMethods.HTBOTTOM;
         }
+
+        if (m.Msg == NativeMethods.WM_NCHITTEST &&
+            m.Result == (IntPtr)NativeMethods.HTCLIENT &&
+            _titleTabBar.IsHandleCreated &&
+            _maxCaptionBounds.Contains(_titleTabBar.PointToClient(ScreenPointFromLParam(m.LParam))))
+        {
+            m.Result = (IntPtr)HtMaxButton;
+        }
+    }
+
+    private const int HtMaxButton = 9;
+    private const int WmNcMouseMove = 0x00A0;
+    private const int WmNcLButtonDown = 0x00A1;
+    private const int WmNcLButtonUp = 0x00A2;
+    private const int WmNcLButtonDblClk = 0x00A3;
+    private const int WmNcMouseLeave = 0x02A2;
+    private bool _maxButtonPressed;
+
+    /// <summary>
+    /// The drawn Maximize button, reached through HTMAXBUTTON (needed for Windows 11 Snap layouts):
+    /// non-client hover, press and release are handled here instead of by Windows' classic caption button.
+    /// </summary>
+    private bool HandleMaximizeButtonMessage(ref Message m)
+    {
+        bool onMax = m.WParam.ToInt64() == HtMaxButton;
+        switch (m.Msg)
+        {
+            case WmNcMouseMove:
+                if (onMax)
+                {
+                    TrackNonClientLeave();
+                    SetCaptionHover(2);
+                }
+                else
+                {
+                    SetCaptionHover(0);
+                }
+
+                return false;
+            case WmNcMouseLeave:
+                _maxButtonPressed = false;
+                SetCaptionHover(0);
+                return false;
+            case WmNcLButtonDown or WmNcLButtonDblClk when onMax:
+                _maxButtonPressed = true;
+                m.Result = IntPtr.Zero;
+                return true;
+            case WmNcLButtonUp when onMax:
+                if (_maxButtonPressed)
+                {
+                    _maxButtonPressed = false;
+                    ToggleMaximizeRestore();
+                }
+
+                m.Result = IntPtr.Zero;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void SetCaptionHover(int button)
+    {
+        if (_hoveredCaptionBtn != button)
+        {
+            _hoveredCaptionBtn = button;
+            _titleTabBar.Invalidate();
+        }
+    }
+
+    private void TrackNonClientLeave()
+    {
+        NativeMethods.TRACKMOUSEEVENT tme = new()
+        {
+            cbSize = (uint)Marshal.SizeOf<NativeMethods.TRACKMOUSEEVENT>(),
+            dwFlags = 0x00000002 /* TME_LEAVE */ | 0x00000010 /* TME_NONCLIENT */,
+            hwndTrack = Handle
+        };
+        NativeMethods.TrackMouseEvent(ref tme);
+    }
+
+    private static Point ScreenPointFromLParam(IntPtr lParam)
+    {
+        long value = lParam.ToInt64();
+        return new Point((short)(value & 0xFFFF), (short)((value >> 16) & 0xFFFF));
     }
 
     private void ToggleMaximizeRestore()
@@ -1221,6 +1314,20 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
     private void OnTitleTabBarMouseLeave(object? sender, EventArgs e)
     {
+        // Moving onto Maximize leaves the panel (the form takes the mouse there as HTMAXBUTTON)
+        if (_maxCaptionBounds.Contains(_titleTabBar.PointToClient(Cursor.Position)))
+        {
+            if (_hoveredAddBtnZone != 0 || _hoveredTitleTabIndex != -1 || _hoveredTitleTabCloseIndex != -1)
+            {
+                _hoveredAddBtnZone = 0;
+                _hoveredTitleTabIndex = -1;
+                _hoveredTitleTabCloseIndex = -1;
+                _titleTabBar.Invalidate();
+            }
+
+            return;
+        }
+
         if (_hoveredCaptionBtn != 0 ||
             _hoveredAddBtnZone != 0 ||
             _hoveredTitleTabIndex != -1 ||
@@ -1322,6 +1429,30 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
     private void OnTitleTabBarMouseUp(object? sender, MouseEventArgs e)
     {
+        if (e.Button == MouseButtons.Right)
+        {
+            for (int i = 0; i < _titleTabHits.Count; i++)
+            {
+                if (_titleTabHits[i].TabBounds.Contains(e.Location))
+                {
+                    ShowTabContextMenu(_titleTabHits[i].Pane, _titleTabHits[i].Tab, _titleTabBar.PointToScreen(e.Location));
+                    return;
+                }
+            }
+
+            // Empty title-bar space and the app icon: the window menu, as on a native title bar
+            if (!_minCaptionBounds.Contains(e.Location) &&
+                !_maxCaptionBounds.Contains(e.Location) &&
+                !_closeCaptionBounds.Contains(e.Location) &&
+                !_leftPaneAddTabBounds.Contains(e.Location) &&
+                !(_isSplitEnabled && _rightPaneAddTabBounds.Contains(e.Location)))
+            {
+                ShowSystemMenu(_titleTabBar.PointToScreen(e.Location));
+            }
+
+            return;
+        }
+
         if (_pressedTab is not null || _isDraggingTab)
         {
             _pressedTab = null;
@@ -1330,6 +1461,70 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             _titleTabBar.Capture = false;
             _titleTabBar.Invalidate();
         }
+    }
+
+    /// <summary>File Explorer's tab menu (Windows 11 22H2+), plus moving the tab to the other pane in split mode.</summary>
+    private void ShowTabContextMenu(TabbedExplorerPane pane, ExplorerTabInstance tab, Point screenPoint)
+    {
+        ContextMenuStrip menu = Win11MenuRenderer.CreateMenu(_isDarkMode, _uiFont);
+        void Add(string text, Action onClick, bool enabled = true, string? shortcut = null)
+        {
+            ToolStripMenuItem item = Win11MenuRenderer.CreateMenuItem(text, _isDarkMode, (_, _) => onClick(), shortcutDisplay: shortcut);
+            item.Enabled = enabled;
+            menu.Items.Add(item);
+        }
+
+        int index = pane.IndexOfTab(tab);
+        int count = pane.Tabs.Count;
+
+        Add("New tab", () =>
+        {
+            SetSelectedPane(pane);
+            pane.AddNewTab(activate: true);
+        }, shortcut: "Ctrl+T");
+        Add("Duplicate tab", () =>
+        {
+            SetSelectedPane(pane);
+            ExplorerTabInstance copy = pane.AddNewTab(tab.FolderPath, activate: true);
+            int from = pane.IndexOfTab(copy);
+            int to = pane.IndexOfTab(tab) + 1;
+            if (from > to)
+            {
+                pane.MoveTab(from, to);
+            }
+        });
+
+        if (_isSplitEnabled)
+        {
+            TabbedExplorerPane other = pane == _leftFilesPane ? _rightFilesPane : _leftFilesPane;
+            Add(pane == _leftFilesPane ? "Move tab to right pane" : "Move tab to left pane", () =>
+            {
+                if (pane.TryTransferTabTo(tab, other, other.Tabs.Count))
+                {
+                    SetSelectedPane(other);
+                    _titleTabBar.Invalidate();
+                }
+            }, enabled: count > 1);
+        }
+
+        menu.Items.Add(new ToolStripSeparator());
+        Add("Close tab", () => pane.CloseTab(tab), shortcut: "Ctrl+W");
+        Add("Close other tabs", () =>
+        {
+            foreach (ExplorerTabInstance other in pane.Tabs.Where(t => t != tab).ToList())
+            {
+                pane.CloseTab(other);
+            }
+        }, enabled: count > 1);
+        Add("Close tabs to the right", () =>
+        {
+            foreach (ExplorerTabInstance other in pane.Tabs.Skip(pane.IndexOfTab(tab) + 1).ToList())
+            {
+                pane.CloseTab(other);
+            }
+        }, enabled: index >= 0 && index < count - 1);
+
+        menu.Show(screenPoint);
     }
 
     private void HandleTabDragMove(int mouseX)
@@ -1945,6 +2140,55 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
             _hoveredChevronIndex = hoveredChev;
             _breadcrumbView.Invalidate();
         }
+    }
+
+    /// <summary>File Explorer's address bar menu; on a folder segment it also opens that folder in a new tab.</summary>
+    private void OnBreadcrumbMouseUp(object? sender, MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Right)
+        {
+            return;
+        }
+
+        BreadcrumbSegment? segment = null;
+        foreach (BreadcrumbSegment s in _breadcrumbs)
+        {
+            if (s.LabelBounds.Contains(e.Location))
+            {
+                segment = s;
+                break;
+            }
+        }
+
+        ContextMenuStrip menu = Win11MenuRenderer.CreateMenu(_isDarkMode, _uiFont);
+        if (segment is { } seg)
+        {
+            menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Open in new tab", _isDarkMode,
+                (_, _) => _selectedPane?.AddNewTab(seg.TargetPath, activate: true)));
+            menu.Items.Add(new ToolStripSeparator());
+        }
+
+        string address = segment is { } target && !target.TargetPath.StartsWith("::", StringComparison.Ordinal)
+            ? target.TargetPath
+            : segment?.Label ?? _selectedPane?.ActiveTab?.DisplayPath ?? string.Empty;
+        ToolStripMenuItem copy = Win11MenuRenderer.CreateMenuItem("Copy address as text", _isDarkMode, (_, _) =>
+        {
+            try
+            {
+                Clipboard.SetText(address);
+            }
+            catch (ExternalException)
+            {
+                // The clipboard is held by another program
+            }
+        });
+        copy.Enabled = address.Length > 0;
+        menu.Items.Add(copy);
+        menu.Items.Add(Win11MenuRenderer.CreateMenuItem("Edit address", _isDarkMode, (_, _) => EnterAddressEditMode()));
+        ToolStripMenuItem deleteHistory = Win11MenuRenderer.CreateMenuItem("Delete history", _isDarkMode, (_, _) => Core.FolderHistory.Clear());
+        deleteHistory.Enabled = Core.FolderHistory.Entries.Count > 0;
+        menu.Items.Add(deleteHistory);
+        menu.Show(_breadcrumbView.PointToScreen(e.Location));
     }
 
     private void OnBreadcrumbMouseDown(object? sender, MouseEventArgs e)
@@ -2629,6 +2873,14 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
         Add("Properties", Win11MenuRenderer.Glyph(""),
             () => tab.InvokeShellVerb("properties", onBackground: tab.GetSelectedItemCount() == 0), "Alt+Enter");
         Add("Options", Win11MenuRenderer.Glyph(""), OpenWindowsFolderOptions);
+        if (TrayApplicationContext.Current is { } tray)
+        {
+            // Explorer2's own settings: the same list as the tray icon's menu
+            ToolStripMenuItem preferences = Win11MenuRenderer.CreateIconMenuItem("Preferences", _isDarkMode, Win11MenuRenderer.Glyph(""));
+            preferences.DropDownItems.AddRange(tray.CreatePreferenceItems((text, onClick, isChecked, isRadio) =>
+                Win11MenuRenderer.CreateMenuItem(text, _isDarkMode, onClick, isChecked: isChecked, isCheckBox: !isRadio)).ToArray());
+            menu.Items.Add(preferences);
+        }
 
         // Explorer2's own additions, below the File Explorer commands
         menu.Items.Add(new ToolStripSeparator());
@@ -3579,6 +3831,16 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
                     return true;
                 }
 
+                // Esc in the file list clears the selection (renames, menus and text boxes keep their Esc)
+                if (modifiers == Keys.None && keyCode == Keys.Escape &&
+                    _selectedPane.ActiveTab is { } escTab &&
+                    NativeMethods.IsChild(_selectedPane.Handle, m.HWnd) &&
+                    escTab.GetSelectedItemCount() > 0)
+                {
+                    escTab.SelectNoneItems();
+                    return true;
+                }
+
                 if (_selectedPane.ActiveTab is not null &&
                     NativeMethods.IsChild(_selectedPane.Handle, m.HWnd))
                 {
@@ -3659,13 +3921,15 @@ internal sealed partial class DualPaneExplorerForm : Form, IMessageFilter
 
     private sealed class TitleBarHitPanel : DoubleBufferedPanel
     {
+        public Func<Point, bool>? IsMaximizeButton { get; init; }
+
         protected override void WndProc(ref Message m)
         {
             base.WndProc(ref m);
             if (m.Msg == NativeMethods.WM_NCHITTEST && m.Result == (IntPtr)NativeMethods.HTCLIENT)
             {
-                Point pt = PointToClient(new Point(m.LParam.ToInt32()));
-                if (pt.Y < 7 || pt.X < 7 || pt.X >= Width - 7)
+                Point pt = PointToClient(ScreenPointFromLParam(m.LParam));
+                if (pt.Y < 7 || pt.X < 7 || pt.X >= Width - 7 || IsMaximizeButton?.Invoke(pt) == true)
                 {
                     m.Result = (IntPtr)NativeMethods.HTTRANSPARENT;
                 }
