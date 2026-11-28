@@ -12,7 +12,8 @@ param(
     [string]$Out = (Join-Path $PSScriptRoot "..\docs\guide.mp4"),
     [string]$DemoRoot = (Join-Path $env:TEMP "Explorer2Guide"),
     [string]$Exe = (Join-Path $PSScriptRoot "..\bin\Release\net8.0-windows\Explorer2.exe"),
-    [switch]$NoRecord
+    [switch]$NoRecord,
+    [switch]$Diag   # only open and place the window, print where it is, and close it
 )
 
 $ErrorActionPreference = "Stop"
@@ -90,19 +91,27 @@ Start-Sleep 1
 $h = [Guide]::MainWindowOf([uint32]$proc.Id)
 if ($h -eq [IntPtr]::Zero) { throw "Explorer2 did not open a window" }
 $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-$W = [Math]::Min(1600, $wa.Width - 80); $H = [Math]::Min(900, $wa.Height - 80)
+# (PowerShell names ignore case: the size must not be called $H, which is the window handle $h)
+$WinW = [Math]::Min(1600, $wa.Width - 80); $WinH = [Math]::Min(900, $wa.Height - 80)
 $X0 = $wa.Left + 40; $Y0 = $wa.Top + 40
 Start-Sleep 2
 for ($i = 0; $i -lt 5; $i++) {
     # The window may still place itself while it opens: move it until it stays
-    [Guide]::MoveWindow($h, $X0, $Y0, $W, $H, $true) | Out-Null
+    [Guide]::MoveWindow($h, $X0, $Y0, $WinW, $WinH, $true) | Out-Null
     Start-Sleep -Milliseconds 600
     $r = New-Object Guide+RECT
     [Guide]::GetWindowRect($h, [ref]$r) | Out-Null
-    if ($r.L -eq $X0 -and $r.T -eq $Y0 -and ($r.R - $r.L) -eq $W) { break }
+    if ($r.L -eq $X0 -and $r.T -eq $Y0 -and ($r.R - $r.L) -eq $WinW) { break }
 }
 $scale = [Guide]::GetDpiForWindow($h) / 96.0
 function Px([double]$v) { [int][Math]::Round($v * $scale) }
+$r = New-Object Guide+RECT
+[Guide]::GetWindowRect($h, [ref]$r) | Out-Null
+Write-Host "window $h at $($r.L),$($r.T),$($r.R),$($r.B); wanted $X0,$Y0 ${WinW}x${WinH}; dpi scale $scale; work area $wa"
+if ($Diag) {
+    $proc.CloseMainWindow() | Out-Null; Start-Sleep 1; if (-not $proc.HasExited) { $proc.Kill() }
+    return
+}
 
 # ---------- caption box (recorded with the window) ----------
 $caption = New-Object System.Windows.Forms.Form
@@ -114,7 +123,7 @@ $label.Dock = "Fill"; $label.ForeColor = [System.Drawing.Color]::White; $label.T
 $label.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 15)
 $caption.Controls.Add($label)
 $caption.Size = New-Object System.Drawing.Size((Px 720), (Px 64))
-$caption.Location = New-Object System.Drawing.Point(($X0 + ($W - $caption.Width) / 2), ($Y0 + $H - $caption.Height - (Px 70)))
+$caption.Location = New-Object System.Drawing.Point(($X0 + ($WinW - $caption.Width) / 2), ($Y0 + $WinH - $caption.Height - (Px 70)))
 $caption.Show()
 
 function Pump([double]$seconds) {
@@ -155,8 +164,13 @@ function TypeText([string]$text) { Front; [System.Windows.Forms.SendKeys]::SendW
 function MoveTo([int]$x, [int]$y) {
     # Glide the cursor so the viewer can follow it
     $p = [System.Windows.Forms.Cursor]::Position
+    # Real mouse-move input (MOUSEEVENTF_MOVE | ABSOLUTE): hover effects need it, SetCursorPos alone
+    # does not reach every control
+    $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     for ($i = 1; $i -le 15; $i++) {
-        [Guide]::SetCursorPos([int]($p.X + ($x - $p.X) * $i / 15), [int]($p.Y + ($y - $p.Y) * $i / 15)) | Out-Null
+        $nx = [int](($p.X + ($x - $p.X) * $i / 15) * 65535 / ($screen.Width - 1))
+        $ny = [int](($p.Y + ($y - $p.Y) * $i / 15) * 65535 / ($screen.Height - 1))
+        [Guide]::mouse_event(0x8001, $nx, $ny, 0, [IntPtr]::Zero)
         Pump 0.02
     }
 }
@@ -176,9 +190,12 @@ if (-not $NoRecord) {
     if (-not $ff) { throw "ffmpeg not found on PATH (winget install Gyan.FFmpeg)" }
     New-Item -ItemType Directory -Force (Split-Path $Out) | Out-Null
     $psi = New-Object System.Diagnostics.ProcessStartInfo $ff
-    $psi.Arguments = "-y -f gdigrab -framerate 30 -draw_mouse 1 -offset_x $X0 -offset_y $Y0 -video_size ${W}x${H} -i desktop " +
+    # Without the window's invisible 7px resize border (left, right, bottom)
+    $b = Px 7
+    $psi.Arguments = "-y -f gdigrab -framerate 30 -draw_mouse 1 -offset_x $($X0 + $b) -offset_y $Y0 -video_size $($WinW - 2 * $b)x$($WinH - $b) -i desktop " +
                      "-c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -vf scale=trunc(iw/2)*2:trunc(ih/2)*2 `"$Out`""
     $psi.UseShellExecute = $false; $psi.RedirectStandardInput = $true; $psi.CreateNoWindow = $true
+    $psi.Environment["FFREPORT"] = "file=" + ("$Out.log" -replace '\\', '/' -replace ':', '\:') + ":level=24"
     $ffmpeg = [System.Diagnostics.Process]::Start($psi)
     Pump 1.5
 }
@@ -207,7 +224,8 @@ try {
     Key F3 2.5; Key Esc 1
 
     Say "Right-click a tab for the tab menu"
-    $p = At 100 21; RightClick $p[0] $p[1]
+    # Split mode: the left pane's first tab starts above the left file list
+    $p = At 270 21; RightClick $p[0] $p[1]
     Pump 1.5; Key Esc 0.8
 
     Say "Right-click the address bar"
@@ -216,21 +234,25 @@ try {
 
     Say "Favorites: links, with nested links that open as you point at them"
     Key @("Ctrl", "Shift", "E") 1
-    $p = At 110 150; MoveTo $p[0] $p[1]; Pump 2.5
-    $p = At 240 185; MoveTo $p[0] $p[1]; Pump 2.5
+    # The "Projects" favorite (below the top rows), then "Invoices" in the flyout that opens below it
+    $p = At 60 316; MoveTo $p[0] $p[1]; Pump 2.5
+    $p = At 200 350; MoveTo $p[0] $p[1]; Pump 3
     Key Esc 0.5
 
     Say "Search the current folder (Ctrl+F)"
     Key @("Ctrl", "F") 0.6; TypeText "plan"; Pump 2; Key Esc 1
 
     Say "Rest on Maximize for Snap layouts"
-    $p = @(($X0 + $W - (Px 7) - (Px 69)), ($Y0 + (Px 20))); MoveTo $p[0] $p[1]; Pump 3
+    $p = @(($X0 + $WinW - (Px 7) - (Px 69)), ($Y0 + (Px 20))); MoveTo $p[0] $p[1]; Pump 3
     $p = At 600 400; MoveTo $p[0] $p[1]
 
     Say "Explorer2: one window, two panes" 2.5
 }
 finally {
-    if ($ffmpeg) { $ffmpeg.StandardInput.Write("q"); $ffmpeg.WaitForExit(15000) | Out-Null }
+    if ($ffmpeg) {
+        if ($ffmpeg.HasExited) { Write-Warning "ffmpeg stopped early (exit $($ffmpeg.ExitCode)); see $Out.log" }
+        else { $ffmpeg.StandardInput.Write("q"); $ffmpeg.WaitForExit(15000) | Out-Null }
+    }
     $caption.Close()
     if (-not $proc.HasExited) { $proc.CloseMainWindow() | Out-Null; Start-Sleep 1; if (-not $proc.HasExited) { $proc.Kill() } }
     Remove-Item Env:EXPLORER2_FAVORITES_FILE -ErrorAction SilentlyContinue
