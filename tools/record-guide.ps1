@@ -33,6 +33,26 @@ public static class Guide {
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   public static uint ForegroundPid() { uint pid; GetWindowThreadProcessId(GetForegroundWindow(), out pid); return pid; }
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+  [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+  public static uint PidAt(int x, int y) { POINT p; p.X = x; p.Y = y; uint pid; GetWindowThreadProcessId(WindowFromPoint(p), out pid); return pid; }
+  public delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc f, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  // The process's largest visible top-level window (MainWindowHandle can be a helper window)
+  public static IntPtr MainWindowOf(uint pid) {
+    IntPtr best = IntPtr.Zero; long bestArea = 0;
+    EnumWindows((h, l) => {
+      uint p; GetWindowThreadProcessId(h, out p);
+      RECT r;
+      if (p == pid && IsWindowVisible(h) && GetWindowRect(h, out r)) {
+        long area = (long)(r.R - r.L) * (r.B - r.T);
+        if (area > bestArea) { bestArea = area; best = h; }
+      }
+      return true;
+    }, IntPtr.Zero);
+    return best;
+  }
 }
 "@
 [Guide]::SetProcessDpiAwarenessContext([IntPtr]-4) | Out-Null   # per-monitor v2: real pixels
@@ -64,14 +84,23 @@ $favorites | ConvertTo-Json -Depth 8 | Set-Content $favFile -Encoding utf8
 # ---------- start a standalone window ----------
 $env:EXPLORER2_FAVORITES_FILE = $favFile
 $proc = Start-Process $Exe -ArgumentList "--standalone", "`"$($work.FullName)`"" -PassThru
-for ($i = 0; $i -lt 50 -and $proc.MainWindowHandle -eq 0; $i++) { Start-Sleep -Milliseconds 200; $proc.Refresh() }
-$h = $proc.MainWindowHandle
-if ($h -eq 0) { throw "Explorer2 did not open a window" }
+$h = [IntPtr]::Zero
+for ($i = 0; $i -lt 50 -and $h -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 200; $h = [Guide]::MainWindowOf([uint32]$proc.Id) }
+Start-Sleep 1
+$h = [Guide]::MainWindowOf([uint32]$proc.Id)
+if ($h -eq [IntPtr]::Zero) { throw "Explorer2 did not open a window" }
 $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $W = [Math]::Min(1600, $wa.Width - 80); $H = [Math]::Min(900, $wa.Height - 80)
 $X0 = $wa.Left + 40; $Y0 = $wa.Top + 40
-[Guide]::MoveWindow($h, $X0, $Y0, $W, $H, $true) | Out-Null
 Start-Sleep 2
+for ($i = 0; $i -lt 5; $i++) {
+    # The window may still place itself while it opens: move it until it stays
+    [Guide]::MoveWindow($h, $X0, $Y0, $W, $H, $true) | Out-Null
+    Start-Sleep -Milliseconds 600
+    $r = New-Object Guide+RECT
+    [Guide]::GetWindowRect($h, [ref]$r) | Out-Null
+    if ($r.L -eq $X0 -and $r.T -eq $Y0 -and ($r.R - $r.L) -eq $W) { break }
+}
 $scale = [Guide]::GetDpiForWindow($h) / 96.0
 function Px([double]$v) { [int][Math]::Round($v * $scale) }
 
@@ -96,10 +125,18 @@ function Say([string]$text, [double]$hold = 2.2) { $label.Text = $text; $caption
 function Front {
     # Keys and clicks must only ever reach Explorer2 (its window, menus or dialogs): stop otherwise
     if ([Guide]::ForegroundPid() -ne $proc.Id) {
-        # Windows lets a process take the foreground after it sends input; an Alt tap is harmless
-        [Guide]::keybd_event(0x12, 0, 0, [IntPtr]::Zero); [Guide]::keybd_event(0x12, 0, 2, [IntPtr]::Zero)
-        [Guide]::SetForegroundWindow($h) | Out-Null
-        Pump 0.4
+        # A real click on Explorer2's own empty title-bar space brings it to the front (Windows
+        # refuses SetForegroundWindow to background processes). Click only when that point is
+        # Explorer2's window.
+        $r = New-Object Guide+RECT
+        [Guide]::GetWindowRect($h, [ref]$r) | Out-Null
+        $tx = [int]($r.L + ($r.R - $r.L) * 0.6); $ty = $r.T + (Px 20)
+        if ([Guide]::PidAt($tx, $ty) -eq $proc.Id) {
+            [Guide]::SetCursorPos($tx, $ty) | Out-Null
+            Pump 0.1
+            [Guide]::mouse_event(0x2, 0, 0, 0, [IntPtr]::Zero); [Guide]::mouse_event(0x4, 0, 0, 0, [IntPtr]::Zero)
+            Pump 0.4
+        }
     }
 
     if ([Guide]::ForegroundPid() -ne $proc.Id) { throw "Explorer2 is not in front; stopping so no keys reach another program" }
